@@ -1,0 +1,24 @@
+🚀 QUICK START - 3 Steps
+
+1. INSTALL
+   pip install -r requirements.txt
+
+2. LAUNCH
+   streamlit run app.py
+   
+3. USE
+   - Upload CSV (must have NL, X1, Y1, pDBH_RF, Z_ft, pStV_RF)
+   - Select strategies
+   - Click "Run Analysis"
+   - Wait 10-30 min
+   - View results
+
+
+TYPICAL WORKFLOW:
+1. Upload sparse_stand.csv
+2. Try: 3-row + Thin from Below
+3. Wait for results
+4. Run 3-4 more strategies
+5. Go to "Compare Results"
+6. Export comparison table
+
