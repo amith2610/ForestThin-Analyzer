@@ -1782,7 +1782,7 @@ def run_complete_workflow(config_file):
 
     
     # Export to Excel
-    excel_path = "/Users/amithreddy/Desktop/G&Y_model_python/Growth_Yield_Thinning/Comparison_analysis.xlsx"
+    excel_path = os.path.join(run_dir, "comparison_analysis.xlsx")
     export_to_excel(
         strategy_name=strategy_name,
         mean_dbh=mean_dbh_final,
