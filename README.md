@@ -10,7 +10,7 @@ Professional forestry analysis tool for loblolly pine thinning strategies.
 - Interactive comparison tools
 
 ## Live Demo
-[Link will be added after deployment]
+https://forestthin-analyzer.streamlit.app/
 
 ## Local Installation
 ```bash
