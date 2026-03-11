@@ -97,9 +97,9 @@ def display_results(summary):
         
         with growth_col2:
             st.markdown("**Growth:**")
-            st.write(f"• DBH: +{growth['mean_dbh_growth']:.2f}\"")
-            st.write(f"• Height: +{growth['mean_height_growth']:.2f}'")
-            st.write(f"• Volume: +{growth.get('growth_in_volume', 0):.2f} ft³")
+            st.write(f"• DBH: {growth['mean_dbh_growth']:+,.2f}\"")
+            st.write(f"• Height: {growth['mean_height_growth']:+,.2f}'")
+            st.write(f"• Volume: {growth.get('growth_in_volume', 0):+.2f} ft³")
             st.write(f"• Survival: {growth['final_survival_rate']:.1f}%")
         
         # Per-acre metrics (if stand area was provided)
@@ -189,16 +189,16 @@ def display_results(summary):
             
             # DBH Distribution Histograms
             st.markdown("---")
-            st.markdown("### DBH Distribution (2-inch Classes)")
+            st.markdown("### DBH Distribution (1-inch Classes)")
             
             # Get initial and final DBH columns
             initial_dbh_col = 'DBH'
             if len(dbh_cols) > 1:
                 final_dbh_col = [col for col in dbh_cols if '+' in col][-1]  # Last projection year
                 
-                # Create 2-inch bins
+                # Create 1-inch bins for detailed distribution
                 max_dbh = max(growth_df[initial_dbh_col].max(), growth_df[final_dbh_col].max())
-                bins = list(range(0, int(max_dbh) + 4, 2))  # 0, 2, 4, 6, 8, ...
+                bins = list(range(0, int(max_dbh) + 2, 1))  # 0, 1, 2, 3, 4, 5, 6, 7, 8, ...
                 
                 # Initial DBH distribution (all trees after thinning)
                 initial_dbh = growth_df[initial_dbh_col].dropna()
@@ -214,7 +214,7 @@ def display_results(summary):
                     fig1 = go.Figure()
                     fig1.add_trace(go.Histogram(
                         x=initial_dbh,
-                        xbins=dict(start=0, end=max_dbh+2, size=2),
+                        xbins=dict(start=0, end=max_dbh+2, size=1),  # 1-inch bins
                         marker_color='steelblue',
                         name='Initial'
                     ))
@@ -233,7 +233,7 @@ def display_results(summary):
                     fig2 = go.Figure()
                     fig2.add_trace(go.Histogram(
                         x=final_dbh,
-                        xbins=dict(start=0, end=max_dbh+2, size=2),
+                        xbins=dict(start=0, end=max_dbh+2, size=1),  # 1-inch bins
                         marker_color='forestgreen',
                         name='Final'
                     ))
