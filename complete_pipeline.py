@@ -1455,8 +1455,9 @@ def run_complete_workflow(config_file):
         
         primary_stats = final_stats.copy()
         
-        # Define strategy variable for later use (summary generation)
+        # Define all variables needed for summary generation
         strategy = "No Thinning"
+        secondary_config = {'enabled': False}  # No secondary thinning in no-thin mode
         
         # Skip intermediate saves and maps in no-thin mode
         
