@@ -1354,8 +1354,8 @@ def run_complete_workflow(config_file):
     """
     Execute complete workflow from configuration
     
+    Supports both thinning and no-thinning modes.
     Preserves ALL logic from both thinning tool and PTAEDA4.
-    Only adds connection layer.
     """
     
     # Load configuration
@@ -1364,12 +1364,20 @@ def run_complete_workflow(config_file):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     verbose = config['output'].get('verbose', True)
     
+    # Check for no-thin mode
+    no_thinning = config.get('no_thinning', False)
+    
     if verbose:
         print("\n" + "="*80)
-        print("COMPLETE FOREST THINNING AND GROWTH PROJECTION PIPELINE")
+        if no_thinning:
+            print("FOREST GROWTH PROJECTION PIPELINE (NO THINNING)")
+        else:
+            print("COMPLETE FOREST THINNING AND GROWTH PROJECTION PIPELINE")
         print("="*80)
         print(f"\nRun ID: {timestamp}")
         print(f"Config: {config_file}")
+        if no_thinning:
+            print("Mode: Growth projection only - no thinning applied")
     
     # Create output directory
     output_dir = config['output']['directory']
@@ -1401,16 +1409,70 @@ def run_complete_workflow(config_file):
         print(f"   Total rows: {len(ordered_rows(df_stand, columns['row']))}")
     
     # ========================================================================
-    # STEP 2: PRIMARY THINNING
+    # THINNING STEPS (SKIP IF NO_THINNING MODE)
     # ========================================================================
     
-    if verbose:
-        print("\n" + "="*80)
-        print("STEP 2: PRIMARY THINNING")
-        print("="*80)
-    
-    primary_config = config['primary_thinning']
-    strategy = primary_config['strategy']
+    if no_thinning:
+        # ====================================================================
+        # NO-THIN MODE: Skip all thinning, use all trees for growth projection
+        # ====================================================================
+        
+        if verbose:
+            print("\n" + "="*80)
+            print("SKIPPING THINNING (No-Thin Mode)")
+            print("="*80)
+            print("\n✅ All trees retained for growth projection")
+        
+        # Use all trees directly
+        df_final = df_stand.copy()
+        
+        # Mark all alive trees as 'Keep' (required for PTAEDA4 bridge)
+        df_final.loc[df_final['status'] == 'Alive', 'thin_decision'] = 'Keep'
+        
+        # Create dummy thinning stats (all zeros - no thinning occurred)
+        final_stats = {
+            'trees_before': alive_count,
+            'trees_after': alive_count,
+            'trees_removed': 0,
+            'pct_trees_removed': 0.0,
+            'ba_before_sqft': 0.0,
+            'ba_after_sqft': 0.0,
+            'ba_removed_sqft': 0.0,
+            'ba_removal_pct': 0.0,
+            'thinning_intensity': 0.0,  # CRITICAL: PTAEDA4 needs this
+            'mean_dbh_before': 0.0,
+            'mean_dbh_after': 0.0,
+            'median_dbh_before': 0.0,
+            'median_dbh_after': 0.0,
+            'mean_height_before': 0.0,
+            'mean_height_after': 0.0,
+            'qmd_before': 0.0,
+            'qmd_after': 0.0,
+            'volume_before': 0.0,
+            'volume_after': 0.0,
+            'volume_removed': 0.0,
+        }
+        
+        primary_stats = final_stats.copy()
+        
+        # Skip intermediate saves and maps in no-thin mode
+        
+    else:
+        # ====================================================================
+        # NORMAL MODE: Execute thinning workflow
+        # ====================================================================
+        
+        # ========================================================================
+        # STEP 2: PRIMARY THINNING
+        # ========================================================================
+        
+        if verbose:
+            print("\n" + "="*80)
+            print("STEP 2: PRIMARY THINNING")
+            print("="*80)
+        
+        primary_config = config['primary_thinning']
+        strategy = primary_config['strategy']
     
     if strategy in ["3-row", "4-row", "5-row"]:
         k = int(strategy.split("-")[0])
@@ -1527,12 +1589,14 @@ def run_complete_workflow(config_file):
             print("\n⏭️  Skipping secondary thinning")
         df_final = df_primary
         final_stats = primary_stats
+        
+        # End of thinning workflow (normal mode)
     
     # ========================================================================
-    # STEP 4: SAVE INTERMEDIATE RESULTS
+    # STEP 4: SAVE INTERMEDIATE RESULTS (Skip maps in no-thin mode)
     # ========================================================================
     
-    if config['output'].get('save_intermediate', True):
+    if config['output'].get('save_intermediate', True) and not no_thinning:
         if verbose:
             print("\n" + "="*80)
             print("STEP 4: SAVING INTERMEDIATE RESULTS")
@@ -1644,11 +1708,14 @@ def run_complete_workflow(config_file):
     mean_dbh_final = float(final_dbh_values.mean())
     mean_height_final = float(final_ht_values.mean())
     
-    # Volume calculations
+    # Volume calculations - FIXED: Use ALL post-thinning trees for baseline
     total_volume_final = float(calculate_total_volume(final_dbh_values, final_ht_values))
-    initial_dbh_survived = growth_df.loc[survived_mask, 'DBH']
-    initial_ht_survived = growth_df.loc[survived_mask, 'HT']
-    volume_after_thinning = float(calculate_total_volume(initial_dbh_survived, initial_ht_survived))
+    
+    # CORRECTED: Calculate baseline from ALL trees after thinning (not just survivors)
+    # This gives true NET volume change accounting for mortality
+    initial_dbh_all = growth_df['DBH']  # ALL trees after thinning
+    initial_ht_all = growth_df['HT']    # ALL trees after thinning
+    volume_after_thinning = float(calculate_total_volume(initial_dbh_all, initial_ht_all))
     growth_in_volume = total_volume_final - volume_after_thinning
     
     # Per-acre metrics (if stand area provided)
@@ -1656,8 +1723,8 @@ def run_complete_workflow(config_file):
     per_acre_metrics = {}
     
     if stand_area_acres is not None and stand_area_acres > 0:
-        # Trees per acre by size class (2-inch classes)
-        dbh_bins = list(range(0, int(final_dbh_values.max()) + 4, 2))
+        # Trees per acre by size class (1-inch classes)
+        dbh_bins = list(range(0, int(final_dbh_values.max()) + 2, 1))
         tpa_distribution, _ = np.histogram(final_dbh_values, bins=dbh_bins)
         tpa_distribution = (tpa_distribution / stand_area_acres).tolist()
         
@@ -1676,8 +1743,8 @@ def run_complete_workflow(config_file):
         'config_file': config_file,
         'configuration': config,
         'thinning_results': {
-            'primary_strategy': config['primary_thinning']['strategy'],
-            'secondary_strategy': secondary_config.get('strategy', 'None') if secondary_config.get('enabled') else 'None',
+            'primary_strategy': 'No Thinning' if no_thinning else config['primary_thinning']['strategy'],
+            'secondary_strategy': secondary_config.get('strategy', 'None') if (not no_thinning and secondary_config.get('enabled')) else 'None',
             'trees_before': int(final_stats['trees_before']),
             'trees_after': int(final_stats['trees_after']),
             'trees_removed': int(final_stats['trees_removed']),

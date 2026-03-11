@@ -65,58 +65,80 @@ def show():
         if 'uploaded_file' not in st.session_state:
             st.warning("⚠️ Upload a file first")
         else:
-            st.subheader("Primary Thinning")
+            # Thinning Mode Selection
+            st.subheader("Thinning Mode")
             
-            # Strategy mapping: display name -> pipeline key
-            primary_map = {
-                "3-row thinning (remove every 3rd row)": "3-row",
-                "4-row thinning (remove every 4th row)": "4-row",
-                "5-row thinning (remove every 5th row)": "5-row",
-                "variable-3_row_eqv": "variable-3_row_eqv",
-                "variable-4_row_eqv": "variable-4_row_eqv",
-                "variable-5_row_eqv": "variable-5_row_eqv"
-            }
-            
-            primary_display = st.selectbox(
-                "Strategy", 
-                list(primary_map.keys()),
-                key="primary_strategy_select"
+            no_thin = st.checkbox(
+                "Skip Thinning (Growth Projection Only)",
+                value=False,
+                help="Run growth projection on all trees without any thinning",
+                key="no_thin_checkbox"
             )
-            primary_strategy = primary_map[primary_display]
             
-            if primary_strategy in ["3-row", "4-row", "5-row"]:
-                start_row = st.number_input("Start Row", 1, 5, 1, key="start_row_input")
-            else:
+            if no_thin:
+                st.info("ℹ️ **No-Thin Mode**: All trees will be retained. Only growth projection will be performed.")
+                # Skip thinning configuration
+                primary_strategy = "none"
                 start_row = 1
-            
-            st.markdown("---")
-            st.subheader("Secondary Thinning")
-            
-            enable_secondary = st.checkbox("Enable Secondary Thinning", key="enable_secondary_check")
-            
-            if enable_secondary:
-                secondary_strategy = st.selectbox(
-                    "Secondary Strategy",
-                    [
-                        "Thin from Below",
-                        "Thin from Above-1 (Neighbors)",
-                        "Thin from Above-2 (Anchor)",
-                        "Thin by CI_Z (Height Competition)",
-                        "Thin by CI1 (Distance-Dependent Competition)"
-                    ],
-                    key="secondary_strategy_select"
-                )
-                
-                removal_pct = st.slider("Removal %", 10, 60, 20, key="removal_slider")
-                
-                if 'Above' in secondary_strategy:
-                    anchor_pct = st.slider("Anchor %", 5, 25, 10, key="anchor_slider")
-                else:
-                    anchor_pct = 10
-            else:
+                enable_secondary = False
                 secondary_strategy = None
                 removal_pct = 0
                 anchor_pct = 10
+            else:
+                # Normal thinning configuration
+                st.markdown("---")
+                st.subheader("Primary Thinning")
+                
+                # Strategy mapping: display name -> pipeline key
+                primary_map = {
+                    "3-row thinning (remove every 3rd row)": "3-row",
+                    "4-row thinning (remove every 4th row)": "4-row",
+                    "5-row thinning (remove every 5th row)": "5-row",
+                    "variable-3_row_eqv": "variable-3_row_eqv",
+                    "variable-4_row_eqv": "variable-4_row_eqv",
+                    "variable-5_row_eqv": "variable-5_row_eqv"
+                }
+                
+                primary_display = st.selectbox(
+                    "Strategy", 
+                    list(primary_map.keys()),
+                    key="primary_strategy_select"
+                )
+                primary_strategy = primary_map[primary_display]
+                
+                if primary_strategy in ["3-row", "4-row", "5-row"]:
+                    start_row = st.number_input("Start Row", 1, 5, 1, key="start_row_input")
+                else:
+                    start_row = 1
+                
+                st.markdown("---")
+                st.subheader("Secondary Thinning")
+                
+                enable_secondary = st.checkbox("Enable Secondary Thinning", key="enable_secondary_check")
+                
+                if enable_secondary:
+                    secondary_strategy = st.selectbox(
+                        "Secondary Strategy",
+                        [
+                            "Thin from Below",
+                            "Thin from Above-1 (Neighbors)",
+                            "Thin from Above-2 (Anchor)",
+                            "Thin by CI_Z (Height Competition)",
+                            "Thin by CI1 (Distance-Dependent Competition)"
+                        ],
+                        key="secondary_strategy_select"
+                    )
+                    
+                    removal_pct = st.slider("Removal %", 10, 60, 20, key="removal_slider")
+                    
+                    if 'Above' in secondary_strategy:
+                        anchor_pct = st.slider("Anchor %", 5, 25, 10, key="anchor_slider")
+                    else:
+                        anchor_pct = 10
+                else:
+                    secondary_strategy = None
+                    removal_pct = 0
+                    anchor_pct = 10
             
             st.markdown("---")
             st.subheader("Stand Parameters")
@@ -125,9 +147,12 @@ def show():
             with col1:
                 current_age = st.number_input("Current Age", 6, 50, 16, key="current_age_input")
             with col2:
-                thin_age = st.number_input("Thin Age", 6, 50, 16, key="thin_age_input")
+                # Thin age defaults to current age (thinning happens now)
+                thin_age = st.number_input("Thin Age", 6, 50, current_age, key="thin_age_input")
             with col3:
-                proj_age = st.number_input("Project To", current_age+1, 60, 20, key="proj_age_input")
+                # Default projection age is current_age + 4 years (ensures default >= min_value)
+                default_proj_age = max(20, current_age + 4)
+                proj_age = st.number_input("Project To", current_age+1, 60, default_proj_age, key="proj_age_input")
             
             baf = st.number_input("BAF", 5, 40, 10, key="baf_input")
             
@@ -143,6 +168,7 @@ def show():
             
             # Save config
             st.session_state['config'] = {
+                'no_thin': no_thin,  # ADD THIS
                 'primary': primary_strategy,
                 'start_row': start_row,
                 'secondary_enabled': enable_secondary,
@@ -171,7 +197,7 @@ def show():
             if config['secondary_enabled']:
                 st.write(f"**Secondary:** {config['secondary']} ({config['removal_pct']}%)")
             st.write(f"**Ages:** {config['current_age']} → {config['proj_age']}")
-            if config['stand_area']:
+            if config.get('stand_area'):
                 st.write(f"**Area:** {config['stand_area']} acres")
             
             years = config['proj_age'] - config['current_age']
@@ -182,6 +208,7 @@ def show():
                 
                 # Build pipeline config
                 pipeline_config = {
+                    'no_thinning': config.get('no_thin', False),  # ADD THIS
                     'input': {
                         'stand_file': st.session_state['uploaded_file'],
                         'columns': {
@@ -190,28 +217,28 @@ def show():
                         }
                     },
                     'primary_thinning': {
-                        'strategy': config['primary'],
-                        'start_row': config['start_row']
+                        'strategy': config.get('primary', 'none'),
+                        'start_row': config.get('start_row', 1)
                     },
                     'secondary_thinning': {
-                        'enabled': config['secondary_enabled'],
+                        'enabled': config.get('secondary_enabled', False) and not config.get('no_thin', False),
                         'strategy': config.get('secondary', 'Thin from Below'),
-                        'removal_fraction': config['removal_pct'] / 100,
-                        'anchor_fraction': config['anchor_pct'] / 100
+                        'removal_fraction': config.get('removal_pct', 0) / 100,
+                        'anchor_fraction': config.get('anchor_pct', 10) / 100
                     },
                     'stand_parameters': {
                         'current_age': config['current_age'],
                         'thinning_age': config['thin_age'],
                         'projection_age': config['proj_age'],
-                        'stand_area_acres': config['stand_area']
+                        'stand_area_acres': config.get('stand_area')
                     },
                     'growth_model': {
-                        'basal_area_factor': config['baf']
+                        'basal_area_factor': config.get('baf', 10)
                     },
                     'output': {
                         'directory': 'data/runs',
-                        'create_maps': True,
-                        'save_intermediate': True
+                        'create_maps': not config.get('no_thin', False),  # Skip maps if no-thin
+                        'save_intermediate': not config.get('no_thin', False)  # Skip intermediate if no-thin
                     }
                 }
                 
