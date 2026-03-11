@@ -1455,6 +1455,9 @@ def run_complete_workflow(config_file):
         
         primary_stats = final_stats.copy()
         
+        # Define strategy variable for later use (summary generation)
+        strategy = "No Thinning"
+        
         # Skip intermediate saves and maps in no-thin mode
         
     else:
@@ -1473,122 +1476,125 @@ def run_complete_workflow(config_file):
         
         primary_config = config['primary_thinning']
         strategy = primary_config['strategy']
-    
-    if strategy in ["3-row", "4-row", "5-row"]:
-        k = int(strategy.split("-")[0])
-        start_row = primary_config['start_row']
-        if verbose:
-            print(f"\nApplying {k}-row thinning (start_row={start_row})...")
-        df_primary = k_row_thinning(df_stand, k, start_row, columns)
         
-    else:
-        # Variable thinning
-        variant_map = {
-            "variable-3_row_eqv": "3_row_eqv",
-            "variable-4_row_eqv": "4_row_eqv",
-            "variable-5_row_eqv": "5_row_eqv"
-        }
-        variant = variant_map[strategy]
-        if verbose:
-            print(f"\nApplying variable thinning ({variant})...")
-        df_primary, cut_rows = apply_variable_thinning(df_stand, variant, columns)
-        if verbose:
-            print(f"   Cut rows: {cut_rows[:15]}{'...' if len(cut_rows) > 15 else ''}")
-    
-    primary_stats = calculate_thinning_statistics(df_primary, columns)
-    
-    if verbose:
-        print(f"\n✅ Primary thinning complete:")
-        print(f"   Trees removed: {primary_stats['trees_removed']:,} ({primary_stats['pct_trees_removed']:.1f}%)")
-        print(f"   BA removal: {primary_stats['ba_removal_pct']:.2f}%")
-    
-    # Save primary map
-    if config['output'].get('create_maps', True):
-        primary_map = os.path.join(run_dir, "01_primary_thinning_map.png")
-        plot_thinning_map(df_primary, primary_map, f"Primary Thinning: {strategy}", columns)
-        if verbose:
-            print(f"   Map: {os.path.basename(primary_map)}")
-    
-    # ========================================================================
-    # STEP 3: SECONDARY THINNING (OPTIONAL)
-    # ========================================================================
-    
-    secondary_config = config.get('secondary_thinning', {})
-    
-    if secondary_config.get('enabled', False):
-        if verbose:
-            print("\n" + "="*80)
-            print("STEP 3: SECONDARY THINNING")
-            print("="*80)
+        if strategy in ["3-row", "4-row", "5-row"]:
+            k = int(strategy.split("-")[0])
+            start_row = primary_config['start_row']
+            if verbose:
+                print(f"\nApplying {k}-row thinning (start_row={start_row})...")
+            df_primary = k_row_thinning(df_stand, k, start_row, columns)
+            
+        else:
+            # Variable thinning
+            variant_map = {
+                "variable-3_row_eqv": "3_row_eqv",
+                "variable-4_row_eqv": "4_row_eqv",
+                "variable-5_row_eqv": "5_row_eqv"
+            }
+            variant = variant_map[strategy]
+            if verbose:
+                print(f"\nApplying variable thinning ({variant})...")
+            df_primary, cut_rows = apply_variable_thinning(df_stand, variant, columns)
+            if verbose:
+                print(f"   Cut rows: {cut_rows[:15]}{'...' if len(cut_rows) > 15 else ''}")
         
-        sec_strategy = secondary_config['strategy']
-        removal_frac = secondary_config.get('removal_fraction', 0.33)
-        anchor_frac = secondary_config.get('anchor_fraction', 0.10)
+        primary_stats = calculate_thinning_statistics(df_primary, columns)
         
         if verbose:
-            print(f"\nApplying {sec_strategy}...")
-            print(f"   Removal fraction: {removal_frac:.1%}")
-            if "Above" in sec_strategy:
-                print(f"   Anchor fraction: {anchor_frac:.1%}")
+            print(f"\n✅ Primary thinning complete:")
+            print(f"   Trees removed: {primary_stats['trees_removed']:,} ({primary_stats['pct_trees_removed']:.1f}%)")
+            print(f"   BA removal: {primary_stats['ba_removal_pct']:.2f}%")
         
-        # Apply appropriate secondary strategy
-        if sec_strategy == "Thin from Below":
-            df_final, sec_info = apply_secondary_thin_from_below(
-                df_primary, removal_frac, columns
-            )
-            n_removed_sec = sec_info['n_removed']
+        # Save primary map
+        if config['output'].get('create_maps', True):
+            primary_map = os.path.join(run_dir, "01_primary_thinning_map.png")
+            plot_thinning_map(df_primary, primary_map, f"Primary Thinning: {strategy}", columns)
+            if verbose:
+                print(f"   Map: {os.path.basename(primary_map)}")
+    
+        
+        # ========================================================================
+        # STEP 3: SECONDARY THINNING (OPTIONAL)
+        # ========================================================================
+        
+        secondary_config = config.get('secondary_thinning', {})
+        
+        if secondary_config.get('enabled', False):
+            if verbose:
+                print("\n" + "="*80)
+                print("STEP 3: SECONDARY THINNING")
+                print("="*80)
             
-        elif sec_strategy == "Thin from Above-1 (Neighbors)":
-            df_final, sec_info = apply_secondary_thin_from_above_neighbors(
-                df_primary, removal_frac, anchor_frac, columns
-            )
-            n_removed_sec = sec_info['n_removed_total']
+            sec_strategy = secondary_config['strategy']
+            removal_frac = secondary_config.get('removal_fraction', 0.33)
+            anchor_frac = secondary_config.get('anchor_fraction', 0.10)
             
-        elif sec_strategy == "Thin from Above-2 (Anchor)":
-            df_final, sec_info = apply_secondary_thin_from_above_anchor(
-                df_primary, removal_frac, anchor_frac, neighbors_k=5, columns=columns
-            )
-            n_removed_sec = sec_info['removed_total']
+            if verbose:
+                print(f"\nApplying {sec_strategy}...")
+                print(f"   Removal fraction: {removal_frac:.1%}")
+                if "Above" in sec_strategy:
+                    print(f"   Anchor fraction: {anchor_frac:.1%}")
             
-        elif sec_strategy == "Thin by CI_Z (Height Competition)":
-            df_final, sec_info = apply_secondary_thin_ci_z(
-                df_primary, removal_frac, columns
-            )
-            n_removed_sec = sec_info['n_removed_ci_z']
+            # Apply appropriate secondary strategy
+            if sec_strategy == "Thin from Below":
+                df_final, sec_info = apply_secondary_thin_from_below(
+                    df_primary, removal_frac, columns
+                )
+                n_removed_sec = sec_info['n_removed']
+                
+            elif sec_strategy == "Thin from Above-1 (Neighbors)":
+                df_final, sec_info = apply_secondary_thin_from_above_neighbors(
+                    df_primary, removal_frac, anchor_frac, columns
+                )
+                n_removed_sec = sec_info['n_removed_total']
+                
+            elif sec_strategy == "Thin from Above-2 (Anchor)":
+                df_final, sec_info = apply_secondary_thin_from_above_anchor(
+                    df_primary, removal_frac, anchor_frac, neighbors_k=5, columns=columns
+                )
+                n_removed_sec = sec_info['removed_total']
+                
+            elif sec_strategy == "Thin by CI_Z (Height Competition)":
+                df_final, sec_info = apply_secondary_thin_ci_z(
+                    df_primary, removal_frac, columns
+                )
+                n_removed_sec = sec_info['n_removed_ci_z']
+                
+            elif sec_strategy == "Thin by CI1 (Distance-Dependent Competition)":
+                df_final, sec_info = apply_secondary_thin_ci1(
+                    df_primary, removal_frac, columns, prf=2.708, baf=10
+                )
+                n_removed_sec = sec_info['n_removed_ci1']
+            else:
+                if verbose:
+                    print(f"   Warning: Unknown strategy '{sec_strategy}', skipping")
+                df_final = df_primary
+                sec_info = {}
+                n_removed_sec = 0
             
-        elif sec_strategy == "Thin by CI1 (Distance-Dependent Competition)":
-            df_final, sec_info = apply_secondary_thin_ci1(
-                df_primary, removal_frac, columns, prf=2.708, baf=10
-            )
-            n_removed_sec = sec_info['n_removed_ci1']
+            final_stats = calculate_thinning_statistics(df_final, columns)
+            
+            if verbose:
+                print(f"\n✅ Secondary thinning complete:")
+                print(f"   Additional removed: {n_removed_sec:,}")
+                print(f"   Total BA removal: {final_stats['ba_removal_pct']:.2f}%")
+            
+            # Save secondary map
+            if config['output'].get('create_maps', True):
+                secondary_map = os.path.join(run_dir, "02_secondary_thinning_map.png")
+                plot_secondary_thinning_map(
+                    df_primary, df_final, secondary_map,
+                    f"After Secondary: {sec_strategy}", columns
+                )
+                if verbose:
+                    print(f"   Map: {os.path.basename(secondary_map)}")
         else:
             if verbose:
-                print(f"   Warning: Unknown strategy '{sec_strategy}', skipping")
+                print("\n⏭️  Skipping secondary thinning")
             df_final = df_primary
-            sec_info = {}
-            n_removed_sec = 0
+            final_stats = primary_stats
         
-        final_stats = calculate_thinning_statistics(df_final, columns)
-        
-        if verbose:
-            print(f"\n✅ Secondary thinning complete:")
-            print(f"   Additional removed: {n_removed_sec:,}")
-            print(f"   Total BA removal: {final_stats['ba_removal_pct']:.2f}%")
-        
-        # Save secondary map
-        if config['output'].get('create_maps', True):
-            secondary_map = os.path.join(run_dir, "02_secondary_thinning_map.png")
-            plot_secondary_thinning_map(
-                df_primary, df_final, secondary_map,
-                f"After Secondary: {sec_strategy}", columns
-            )
-            if verbose:
-                print(f"   Map: {os.path.basename(secondary_map)}")
-    else:
-        if verbose:
-            print("\n⏭️  Skipping secondary thinning")
-        df_final = df_primary
-        final_stats = primary_stats
+        # End of normal thinning workflow
         
         # End of thinning workflow (normal mode)
     
