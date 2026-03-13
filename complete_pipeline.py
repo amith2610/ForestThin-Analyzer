@@ -1033,8 +1033,10 @@ def slope_corrected_prf_fun(dbh, slope, prf):
     
     SCF = round(np.sqrt(1 + (slope/100)**2), 3)
     cor_prf = SCF * prf
+    LD_feet = cor_prf * dbh
+    LD_meters = LD_feet * 0.3048
     LD = cor_prf * dbh
-    return round(LD, 3)
+    return round(LD_meters, 3)
 
 
 def run_ptaeda4_growth_model(input_csv, output_csv, stand_age, age_at_thinning,
