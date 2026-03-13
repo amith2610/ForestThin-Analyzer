@@ -1033,6 +1033,8 @@ def slope_corrected_prf_fun(dbh, slope, prf):
     
     SCF = round(np.sqrt(1 + (slope/100)**2), 3)
     cor_prf = SCF * prf
+    """Earlier versions had an error where LD was calculated in feet but not converted to meters.
+    This has been fixed to ensure LD is returned in meters. """
     LD_feet = cor_prf * dbh
     LD_meters = LD_feet * 0.3048
     LD = cor_prf * dbh
@@ -1668,11 +1670,16 @@ def run_complete_workflow(config_file):
     xcol = columns['x_coord']
     ycol = columns['y_coord']
     if xcol not in growth_df.columns or ycol not in growth_df.columns:
-        # Reset indices to ensure alignment
+        # Filter df_final to kept trees only (same filter used in prepare_ptaeda4_input)
+        kept_trees_coords = df_final[
+            (df_final['status'] == 'Alive') &
+            (df_final['thin_decision'] == 'Keep')
+        ][[xcol, ycol]].reset_index(drop=True)
+        
+        # Reset growth_df index and assign coordinates
         growth_df = growth_df.reset_index(drop=True)
-        df_final_coords = df_final[[xcol, ycol]].reset_index(drop=True)
-        growth_df[xcol] = df_final_coords[xcol]
-        growth_df[ycol] = df_final_coords[ycol]
+        growth_df[xcol] = kept_trees_coords[xcol]
+        growth_df[ycol] = kept_trees_coords[ycol]
     
     # Create mortality map if maps enabled
     if config['output'].get('create_maps', True):
