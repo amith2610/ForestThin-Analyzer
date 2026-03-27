@@ -1041,13 +1041,14 @@ def calculate_pre_thin_ba2(df, xcol, ycol, dbh_col, prf, baf):
     """
     df['BA2_pre_thin'] = np.nan
     
-    for i in range(len(df)):
-        if pd.isna(df.iloc[i][dbh_col]):
+    # Use actual index labels, not positional range
+    for idx in df.index:
+        if pd.isna(df.at[idx, dbh_col]):
             continue
         
-        focal_x = df.iloc[i][xcol]
-        focal_y = df.iloc[i][ycol]
-        focal_dbh = df.iloc[i][dbh_col]
+        focal_x = df.at[idx, xcol]
+        focal_y = df.at[idx, ycol]
+        focal_dbh = df.at[idx, dbh_col]
         
         # Calculate limiting distance - convert feet to meters
         LD_feet = prf * focal_dbh
@@ -1064,7 +1065,7 @@ def calculate_pre_thin_ba2(df, xcol, ycol, dbh_col, prf, baf):
         
         # Tally method: count trees × BAF
         tally_count = len(neighbors) + 1
-        df.at[i, 'BA2_pre_thin'] = tally_count * baf
+        df.at[idx, 'BA2_pre_thin'] = tally_count * baf
     
     return df
 
@@ -1204,14 +1205,14 @@ def run_ptaeda4_growth_model(input_csv, output_csv, stand_age, age_at_thinning,
             neighbors_ltd = neighbors[neighbors['distance'] < neighbors['LtD']]
             neighbors_scltd = neighbors[neighbors['distance'] < neighbors['SCLtD']]
             
-            # Calculate CI1 - PRESERVED EXACTLY
+            # Calculate CI1 - CORRECTED: Convert distance to feet for proper units
             if len(neighbors_ltd) > 0:
-                ci1 = ((neighbors_ltd['DBH'] / focal_dbh) / neighbors_ltd['distance']).sum()
+                ci1 = ((neighbors_ltd['DBH'] / focal_dbh) / (neighbors_ltd['distance'] * 3.28084)).sum()
                 plot_tree_df_mk2.at[i, 'CI1'] = round(ci1, 3)
             
-            # Calculate CI2 - PRESERVED EXACTLY
+            # Calculate CI2 - CORRECTED: Convert distance to feet for proper units
             if len(neighbors_scltd) > 0:
-                ci2 = ((neighbors_scltd['DBH'] / focal_dbh) / neighbors_scltd['distance']).sum()
+                ci2 = ((neighbors_scltd['DBH'] / focal_dbh) / (neighbors_scltd['distance'] * 3.28084)).sum()
                 plot_tree_df_mk2.at[i, 'CI2'] = round(ci2, 3)
                 
                 # Calculate basal area - CORRECTED: Tally method (count × BAF)
@@ -1238,8 +1239,9 @@ def run_ptaeda4_growth_model(input_csv, output_csv, stand_age, age_at_thinning,
         
         years_since_thinning = current_age - age_at_thinning
         
-        if years_since_thinning >= 0 and years_since_thinning <= 5:
+        if years_since_thinning >= 0 and years_since_thinning <= 5 and thinning_intensity > 0:
             # TRV2 (crown ratio boost) - CORRECTED: Use actual pre-thin BA2
+            # Only activate if actual thinning occurred (thinning_intensity > 0)
             TRV2 = ((plot_tree_df_mk2['BA2_pre_thin'] / plot_tree_df_mk2['BA2']) *
                     (0.03206 * plot_tree_df_mk2['DBH']**0.43665) *
                     np.exp(-years_since_thinning / (current_age**0.5)))
@@ -1269,8 +1271,9 @@ def run_ptaeda4_growth_model(input_csv, output_csv, stand_age, age_at_thinning,
         # DIAMETER INCREMENT - PRESERVED EXACTLY
         # =============================================================================
         
-        if years_since_thinning >= 0 and years_since_thinning <= 5:
+        if years_since_thinning >= 0 and years_since_thinning <= 5 and thinning_intensity > 0:
             # TRV1 (diameter growth multiplier) - CORRECTED: Use actual pre-thin BA2
+            # Only activate if actual thinning occurred (thinning_intensity > 0)
             plot_tree_df_mk2['TRV1'] = (
                 (plot_tree_df_mk2['BA2_pre_thin'] / plot_tree_df_mk2['BA2'])**((years_since_thinning) / HD**2) *
                 np.exp((years_since_thinning)**2 / (current_age / age_at_thinning)**30.829)
