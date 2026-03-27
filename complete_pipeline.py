@@ -1024,6 +1024,51 @@ def calculate_distance(x1, y1, x2, y2):
     return np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
 
+def calculate_pre_thin_ba2(df, xcol, ycol, dbh_col, prf, baf):
+    """
+    Calculate BA2 for all trees before thinning using tally method.
+    
+    Args:
+        df: DataFrame with tree data
+        xcol: X coordinate column name
+        ycol: Y coordinate column name
+        dbh_col: DBH column name
+        prf: Plot Radius Factor
+        baf: Basal Area Factor
+    
+    Returns:
+        DataFrame with BA2_pre_thin column added
+    """
+    df['BA2_pre_thin'] = np.nan
+    
+    for i in range(len(df)):
+        if pd.isna(df.iloc[i][dbh_col]):
+            continue
+        
+        focal_x = df.iloc[i][xcol]
+        focal_y = df.iloc[i][ycol]
+        focal_dbh = df.iloc[i][dbh_col]
+        
+        # Calculate limiting distance - convert feet to meters
+        LD_feet = prf * focal_dbh
+        LD_meters = LD_feet * 0.3048
+        
+        # Find neighbors within limiting distance
+        distances = calculate_distance(
+            focal_x, focal_y,
+            df[xcol].values,
+            df[ycol].values
+        )
+        
+        neighbors = df[(distances < LD_meters) & (distances > 0) & (~df[dbh_col].isna())]
+        
+        # Tally method: count trees × BAF
+        tally_count = len(neighbors) + 1
+        df.at[i, 'BA2_pre_thin'] = tally_count * baf
+    
+    return df
+
+
 def slope_corrected_prf_fun(dbh, slope, prf):
     """Calculate slope-corrected limiting distance - PRESERVED EXACTLY"""
     if pd.isna(dbh):
@@ -1033,12 +1078,8 @@ def slope_corrected_prf_fun(dbh, slope, prf):
     
     SCF = round(np.sqrt(1 + (slope/100)**2), 3)
     cor_prf = SCF * prf
-    """Earlier versions had an error where LD was calculated in feet but not converted to meters.
-    This has been fixed to ensure LD is returned in meters. """
-    LD_feet = cor_prf * dbh
-    LD_meters = LD_feet * 0.3048
     LD = cor_prf * dbh
-    return round(LD_meters, 3)
+    return round(LD, 3)
 
 
 def run_ptaeda4_growth_model(input_csv, output_csv, stand_age, age_at_thinning,
@@ -1069,7 +1110,8 @@ def run_ptaeda4_growth_model(input_csv, output_csv, stand_age, age_at_thinning,
         'DBH': df_raw['pDBH_RF'],
         'HT': df_raw['Z_ft'],
         'YST': stand_age,
-        'slope': 0.0
+        'slope': 0.0,
+        'BA2_pre_thin': df_raw['BA2_pre_thin']  # Pre-thinning basal area
     })
     
     if verbose:
@@ -1172,12 +1214,9 @@ def run_ptaeda4_growth_model(input_csv, output_csv, stand_age, age_at_thinning,
                 ci2 = ((neighbors_scltd['DBH'] / focal_dbh) / neighbors_scltd['distance']).sum()
                 plot_tree_df_mk2.at[i, 'CI2'] = round(ci2, 3)
                 
-                # Calculate basal area - PRESERVED EXACTLY
-                neighbor_ba = (np.pi * (neighbors_scltd['DBH'] / 2)**2).sum()
-                focal_ba = np.pi * (focal_dbh / 2)**2
-                calc_BA = (neighbor_ba + focal_ba) * baf
-                calc_BA = round(calc_BA * 0.00694444, 3)
-                plot_tree_df_mk2.at[i, 'BA2'] = calc_BA
+                # Calculate basal area - CORRECTED: Tally method (count × BAF)
+                tally_count = len(neighbors_scltd) + 1  # Neighbors + focal tree
+                plot_tree_df_mk2.at[i, 'BA2'] = tally_count * baf
         
         # =============================================================================
         # GROWTH CALCULATIONS - PRESERVED EXACTLY
@@ -1200,10 +1239,8 @@ def run_ptaeda4_growth_model(input_csv, output_csv, stand_age, age_at_thinning,
         years_since_thinning = current_age - age_at_thinning
         
         if years_since_thinning >= 0 and years_since_thinning <= 5:
-            BA_before_estimate = plot_tree_df_mk2['BA2'] / (1 - thinning_intensity)
-            
-            # TRV2 (crown ratio boost) - PRESERVED EXACTLY
-            TRV2 = ((plot_tree_df_mk2['BA2'] / BA_before_estimate) *
+            # TRV2 (crown ratio boost) - CORRECTED: Use actual pre-thin BA2
+            TRV2 = ((plot_tree_df_mk2['BA2_pre_thin'] / plot_tree_df_mk2['BA2']) *
                     (0.03206 * plot_tree_df_mk2['DBH']**0.43665) *
                     np.exp(-years_since_thinning / (current_age**0.5)))
         else:
@@ -1233,11 +1270,9 @@ def run_ptaeda4_growth_model(input_csv, output_csv, stand_age, age_at_thinning,
         # =============================================================================
         
         if years_since_thinning >= 0 and years_since_thinning <= 5:
-            BA_before_estimate = plot_tree_df_mk2['BA2'] / (1 - thinning_intensity)
-            
-            # TRV1 (diameter growth multiplier) - PRESERVED EXACTLY
+            # TRV1 (diameter growth multiplier) - CORRECTED: Use actual pre-thin BA2
             plot_tree_df_mk2['TRV1'] = (
-                (plot_tree_df_mk2['BA2'] / BA_before_estimate)**((years_since_thinning) / HD**2) *
+                (plot_tree_df_mk2['BA2_pre_thin'] / plot_tree_df_mk2['BA2'])**((years_since_thinning) / HD**2) *
                 np.exp((years_since_thinning)**2 / (current_age / age_at_thinning)**30.829)
             )
         else:
@@ -1324,7 +1359,8 @@ def prepare_ptaeda4_input(df_final, columns, output_csv_path):
         'treeID': kept_trees['treeID'].values if 'treeID' in kept_trees.columns else kept_trees.index,
         'pDBH_RF': kept_trees[columns['dbh']].values,
         'Z': kept_trees[columns['height']].values / 3.28084,  # Convert feet to meters
-        'Z_ft': kept_trees[columns['height']].values
+        'Z_ft': kept_trees[columns['height']].values,
+        'BA2_pre_thin': kept_trees['BA2_pre_thin'].values  # Pre-thinning basal area
     })
     
     # Save CSV
@@ -1411,6 +1447,42 @@ def run_complete_workflow(config_file):
     if verbose:
         print(f"\n✅ Loaded {alive_count:,} alive trees")
         print(f"   Total rows: {len(ordered_rows(df_stand, columns['row']))}")
+    
+    # ========================================================================
+    # CALCULATE PRE-THINNING BA2 (Spatial Baseline)
+    # ========================================================================
+    
+    if verbose:
+        print("\n" + "="*80)
+        print("CALCULATING PRE-THINNING BA2 (SPATIAL BASELINE)")
+        print("="*80)
+    
+    # Get BAF from config
+    baf = config.get('growth_model', {}).get('basal_area_factor', 10)
+    
+    # PRF lookup table
+    set_prf_df = pd.DataFrame({
+        'BAF': [10, 15, 20, 25, 30, 35, 40, 50, 60],
+        'PRF': [2.708, 2.203, 1.902, 1.697, 1.546, 1.428, 1.333, 1.188, 1.081]
+    })
+    prf_value = float(set_prf_df[set_prf_df['BAF'] == baf]['PRF'].values[0])
+    
+    # Calculate pre-thin BA2 for entire stand
+    df_stand = calculate_pre_thin_ba2(
+        df_stand,
+        xcol=columns['x_coord'],
+        ycol=columns['y_coord'],
+        dbh_col=columns['dbh'],
+        prf=prf_value,
+        baf=baf
+    )
+    
+    if verbose:
+        mean_ba2_pre = df_stand['BA2_pre_thin'].mean()
+        print(f"\n✅ Pre-thinning BA2 calculated")
+        print(f"   Mean BA2 (pre-thin): {mean_ba2_pre:.1f} ft²/acre")
+        print(f"   BAF: {baf}")
+        print(f"   PRF: {prf_value}")
     
     # ========================================================================
     # THINNING STEPS (SKIP IF NO_THINNING MODE)
@@ -1670,16 +1742,11 @@ def run_complete_workflow(config_file):
     xcol = columns['x_coord']
     ycol = columns['y_coord']
     if xcol not in growth_df.columns or ycol not in growth_df.columns:
-        # Filter df_final to kept trees only (same filter used in prepare_ptaeda4_input)
-        kept_trees_coords = df_final[
-            (df_final['status'] == 'Alive') &
-            (df_final['thin_decision'] == 'Keep')
-        ][[xcol, ycol]].reset_index(drop=True)
-        
-        # Reset growth_df index and assign coordinates
+        # Reset indices to ensure alignment
         growth_df = growth_df.reset_index(drop=True)
-        growth_df[xcol] = kept_trees_coords[xcol]
-        growth_df[ycol] = kept_trees_coords[ycol]
+        df_final_coords = df_final[[xcol, ycol]].reset_index(drop=True)
+        growth_df[xcol] = df_final_coords[xcol]
+        growth_df[ycol] = df_final_coords[ycol]
     
     # Create mortality map if maps enabled
     if config['output'].get('create_maps', True):
