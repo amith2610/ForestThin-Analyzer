@@ -208,6 +208,10 @@ def load_stand_data(filepath, columns):
     # Add status column
     df["status"] = np.where(df[columns['height']].notna() & (df[columns['height']] > 0), "Alive", "Dead")
     
+    # Calculate volume using Tasissa formula (standardize across entire pipeline)
+    # V_ob = 0.25663 + 0.00239 × D² × H
+    df[columns['volume']] = 0.25663 + 0.00239 * (df[columns['dbh']] ** 2) * df[columns['height']]
+    
     # Order trees within rows
     df = order_within_rows(df, columns)
     
@@ -1063,7 +1067,13 @@ def calculate_pre_thin_ba2(df, xcol, ycol, dbh_col, prf, baf):
             df[ycol].values
         )
         
-        neighbors = df[(distances < LD_meters) & (distances > 0) & (~df[dbh_col].isna())]
+        # Filter: within limiting distance, not self, alive, has DBH
+        neighbors = df[
+            (distances < LD_meters) & 
+            (distances > 0) & 
+            (df['status'] == 'Alive') &  # Only alive trees
+            (~df[dbh_col].isna())
+        ]
         
         # Tally method: count trees × BAF
         tally_count = len(neighbors) + 1
