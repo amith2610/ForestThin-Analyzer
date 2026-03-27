@@ -660,7 +660,7 @@ def apply_secondary_thin_ci_z(df_after_primary, removal_fraction, columns):
 def calculate_ci1_for_stand(df, columns, prf=2.708, baf=10):
     """
     Calculate CI1 (Competition Index 1) - Distance-dependent competition
-    PRESERVED EXACTLY from original
+    CORRECTED: Proper unit conversion (meters to feet)
     """
     from scipy.spatial import cKDTree
     
@@ -670,7 +670,8 @@ def calculate_ci1_for_stand(df, columns, prf=2.708, baf=10):
     ycol = columns['y_coord']
     
     # Calculate limiting distance for each tree
-    d['LD'] = prf * d[dbh_col]
+    d['LD_feet'] = prf * d[dbh_col]  # DBH (inches) × PRF = feet
+    d['LD_meters'] = d['LD_feet'] * 0.3048  # Convert to meters for coordinate system
     d['CI1'] = np.nan
     
     # Get alive trees
@@ -691,10 +692,10 @@ def calculate_ci1_for_stand(df, columns, prf=2.708, baf=10):
         focal_x = row[xcol]
         focal_y = row[ycol]
         focal_dbh = row[dbh_col]
-        focal_ld = row['LD']
+        focal_ld_meters = row['LD_meters']  # Use meters for KDTree search
         
-        # Find neighbors within limiting distance
-        neighbor_indices = tree.query_ball_point([focal_x, focal_y], focal_ld)
+        # Find neighbors within limiting distance (in meters)
+        neighbor_indices = tree.query_ball_point([focal_x, focal_y], focal_ld_meters)
         neighbor_indices = [i for i in neighbor_indices if alive_trees.index[i] != idx]
         
         if len(neighbor_indices) == 0:
@@ -706,7 +707,7 @@ def calculate_ci1_for_stand(df, columns, prf=2.708, baf=10):
         neighbors['distance'] = np.sqrt(
             (neighbors[xcol] - focal_x)**2 + 
             (neighbors[ycol] - focal_y)**2
-        )
+        )  # Distance in meters
         neighbors = neighbors[neighbors['distance'] > 0]
         
         if len(neighbors) == 0:
@@ -714,7 +715,8 @@ def calculate_ci1_for_stand(df, columns, prf=2.708, baf=10):
             continue
         
         # Calculate CI1 = Σ (neighbor_DBH / focal_DBH) / distance
-        ci1 = ((neighbors[dbh_col] / focal_dbh) / neighbors['distance']).sum()
+        # Convert distance to feet for proper PTAEDA4 units
+        ci1 = ((neighbors[dbh_col] / focal_dbh) / (neighbors['distance'] * 3.28084)).sum()
         d.at[idx, 'CI1'] = round(ci1, 3)
     
     return d
