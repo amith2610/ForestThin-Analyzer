@@ -1162,14 +1162,21 @@ def run_ptaeda4_growth_model(input_csv, output_csv, stand_age, age_at_thinning,
         if verbose:
             print(f"Iteration {k+1}/{no_iterations}: Age {current_age} → {current_age+1}")
         
-        # Calculate limiting distances - PRESERVED EXACTLY
-        plot_tree_df_mk2['LtD'] = plot_tree_df_mk2.apply(
-            lambda row: slope_corrected_prf_fun(row['DBH'], 0, use_prf_no), axis=1
-        )
+        # Calculate limiting distances
+        # plot_tree_df_mk2['LtD'] = plot_tree_df_mk2.apply(
+        #     lambda row: slope_corrected_prf_fun(row['DBH'], 0, use_prf_no), axis=1
+        # )
         
+        # plot_tree_df_mk2['SCLtD'] = plot_tree_df_mk2.apply(
+        #     lambda row: slope_corrected_prf_fun(row['DBH'], row['slope'], use_prf_no), axis=1
+        # )
+
+        # Converting feet to meters
+        plot_tree_df_mk2['LtD'] = plot_tree_df_mk2.apply(
+            lambda row: slope_corrected_prf_fun(row['DBH'], 0, use_prf_no), axis=1) * 0.3048  # Convert feet to meters
+
         plot_tree_df_mk2['SCLtD'] = plot_tree_df_mk2.apply(
-            lambda row: slope_corrected_prf_fun(row['DBH'], row['slope'], use_prf_no), axis=1
-        )
+            lambda row: slope_corrected_prf_fun(row['DBH'], row['slope'], use_prf_no), axis=1) * 0.3048  # Convert feet to meters
         
         # Initialize competition columns - PRESERVED EXACTLY
         plot_tree_df_mk2['CI1'] = np.nan
