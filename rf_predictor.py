@@ -131,7 +131,7 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
             df_copy[col] = df_copy[col].astype('float64')
     
     try:
-        # Modern rpy2 API: Use context manager only, no activate/deactivate
+        # Import conversion utilities
         from rpy2.robjects.conversion import localconverter
         
         # Load R script
@@ -144,21 +144,21 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
             print(f"Loading RF model: {model_path_abs}")
         ro.r(f'rf_model <- readRDS("{model_path_abs}")')
         
-        # Convert pandas DataFrame to R DataFrame using context manager
+        # Convert pandas DataFrame to R DataFrame
         if verbose:
             print("\nConverting data to R format...")
         
-        with localconverter(ro.default_converter + pandas2ri.converter):
+        # Use single context for all conversions to avoid threading issues
+        with (ro.default_converter + pandas2ri.converter).context():
             r_df = ro.conversion.py2rpy(df_copy)
-        
-        if verbose:
-            print("Running predictions...")
-        
-        # Run prediction function
-        result = ro.r['apply_rf_model'](r_df, ro.r['rf_model'])
-        
-        # Convert back to pandas using context manager
-        with localconverter(ro.default_converter + pandas2ri.converter):
+            
+            if verbose:
+                print("Running predictions...")
+            
+            # Run prediction function inside the same context
+            result = ro.r['apply_rf_model'](r_df, ro.r['rf_model'])
+            
+            # Convert back to pandas in same context
             predictions_df = ro.conversion.rpy2py(result)
         
         if verbose:
