@@ -107,6 +107,17 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
         print(f"\nInput: {len(df)} trees")
         print(f"Model: {os.path.basename(model_path)}")
     
+    # Validate file paths exist
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"RF model file not found: {model_path}")
+    
+    if not os.path.exists(r_script_path):
+        raise FileNotFoundError(f"R script file not found: {r_script_path}")
+    
+    # Get absolute paths and normalize for R
+    model_path_abs = os.path.abspath(model_path).replace(os.sep, "/")
+    r_script_path_abs = os.path.abspath(r_script_path).replace(os.sep, "/")
+    
     # Add required 'study' column (metadata, hardcoded)
     df_copy = df.copy()
     df_copy['study'] = 'DEFAULT'
@@ -114,13 +125,13 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
     try:
         # Load R script
         if verbose:
-            print(f"\nLoading R script: {os.path.basename(r_script_path)}")
-        ro.r(f'source("{r_script_path}")')
+            print(f"\nLoading R script: {r_script_path_abs}")
+        ro.r(f'source("{r_script_path_abs}")')
         
         # Load RF model
         if verbose:
-            print(f"Loading RF model: {os.path.basename(model_path)}")
-        ro.r(f'rf_model <- readRDS("{model_path}")')
+            print(f"Loading RF model: {model_path_abs}")
+        ro.r(f'rf_model <- readRDS("{model_path_abs}")')
         
         # Convert pandas DataFrame to R DataFrame using context manager
         if verbose:

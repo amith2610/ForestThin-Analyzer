@@ -314,8 +314,28 @@ def show():
                             status_text.info("🤖 Running Random Forest prediction...")
                             progress_bar.progress(40)
                             
-                            model_path = "models/random_forest_model.rds"
-                            r_script_path = "models/gny_model_application.R"
+                            # Use proper path resolution
+                            import sys
+                            current_dir = os.path.dirname(os.path.abspath(__file__))
+                            parent_dir = os.path.dirname(current_dir)
+                            
+                            model_path = os.path.join(parent_dir, "models", "random_forest_model.rds")
+                            r_script_path = os.path.join(parent_dir, "models", "gny_model_application.R")
+                            
+                            # Check if files exist
+                            if not os.path.exists(model_path):
+                                st.error(f"❌ RF model file not found at: {model_path}")
+                                st.info("💡 Please ensure random_forest_model.rds is in the models/ directory")
+                                progress_bar.empty()
+                                status_text.empty()
+                                raise FileNotFoundError(f"Model file missing: {model_path}")
+                            
+                            if not os.path.exists(r_script_path):
+                                st.error(f"❌ R script not found at: {r_script_path}")
+                                st.info("💡 Please ensure gny_model_application.R is in the models/ directory")
+                                progress_bar.empty()
+                                status_text.empty()
+                                raise FileNotFoundError(f"R script missing: {r_script_path}")
                             
                             predictions = run_rf_prediction(
                                 df, 
