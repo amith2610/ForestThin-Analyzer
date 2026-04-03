@@ -33,7 +33,6 @@ RF_REQUIRED_FEATURES = [
     'SILVA1', 'SILVA2'
 ]
 
-
 def validate_rf_dataset(df):
     """
     Validate that dataset has all required features for RF model
@@ -122,7 +121,16 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
     df_copy = df.copy()
     df_copy['study'] = 'DEFAULT'
     
+    # Convert all numeric columns to float to avoid numpy dtype issues
+    for col in df_copy.columns:
+        if df_copy[col].dtype != 'object':
+            df_copy[col] = df_copy[col].astype(float)
+    
     try:
+        # Activate necessary converters
+        from rpy2.robjects import numpy2ri
+        numpy2ri.activate()
+        
         # Load R script
         if verbose:
             print(f"\nLoading R script: {r_script_path_abs}")
@@ -133,19 +141,26 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
             print(f"Loading RF model: {model_path_abs}")
         ro.r(f'rf_model <- readRDS("{model_path_abs}")')
         
-        # Convert pandas DataFrame to R DataFrame using context manager
+        # Convert pandas DataFrame to R DataFrame
         if verbose:
-            print("\nRunning predictions...")
+            print("\nConverting data to R format...")
         
+        # Use simpler conversion approach
         with localconverter(ro.default_converter + pandas2ri.converter):
-            r_df = ro.conversion.py2rpy(df_copy)
-            
-            # Run prediction function
-            # Assumes R script has a function called 'apply_rf_model'
-            result = ro.r['apply_rf_model'](r_df, ro.r['rf_model'])
-            
-            # Convert back to pandas
-            predictions_df = ro.conversion.rpy2py(result)
+            r_df = pandas2ri.py2rpy(df_copy)
+        
+        if verbose:
+            print("Running predictions...")
+        
+        # Run prediction function
+        result = ro.r['apply_rf_model'](r_df, ro.r['rf_model'])
+        
+        # Convert back to pandas
+        with localconverter(ro.default_converter + pandas2ri.converter):
+            predictions_df = pandas2ri.rpy2py(result)
+        
+        # Deactivate converters
+        numpy2ri.deactivate()
         
         if verbose:
             print(f"\n✅ Predictions complete")
@@ -158,6 +173,11 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
         return predictions_df
         
     except Exception as e:
+        # Deactivate converters on error
+        try:
+            numpy2ri.deactivate()
+        except:
+            pass
         raise RuntimeError(f"RF prediction failed: {str(e)}")
 
 
