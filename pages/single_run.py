@@ -127,7 +127,7 @@ def show():
             st.subheader("Thinning Mode")
             
             # No-thin checkbox
-            no_thinning = st.checkbox("Skip Thinning (No-Thin Mode)", key="no_thin_check",
+            no_thinning = st.checkbox("☑ Skip Thinning (No-Thin Mode)", key="no_thin_check",
                                       help="Growth projection without any thinning operations")
             
             if not no_thinning:
@@ -275,7 +275,7 @@ def show():
                 # Check if RF model selected
                 if config['growth_model'] == 'Random Forest':
                     # RF MODEL PATHWAY
-                    from rf_predictor import validate_rf_dataset, run_rf_prediction, get_rf_summary_stats
+                    from rf_predictor import prepare_rf_data, validate_rf_dataset, run_rf_prediction, get_rf_summary_stats
                     
                     progress_bar = st.progress(0)
                     status_text = st.empty()
@@ -286,25 +286,20 @@ def show():
                         
                         df = pd.read_csv(st.session_state['uploaded_file'])
                         
+                        # Prepare data: rename columns and add missing features
+                        status_text.info("🔧 Preparing data (renaming columns, adding defaults)...")
+                        progress_bar.progress(15)
+                        
+                        df_prepared = prepare_rf_data(df)
+                        
                         # Validate RF requirements
                         status_text.info("🔍 Validating dataset for RF model...")
                         progress_bar.progress(20)
                         
-                        is_valid, msg, df_cleaned = validate_rf_dataset(df)
+                        is_valid, msg, df_cleaned = validate_rf_dataset(df_prepared)
                         if not is_valid:
                             st.error(f"❌ Dataset validation failed: {msg}")
                             st.info("💡 RF model requires LiDAR-processed CSV with ITC metrics and competition indices")
-                            
-                            # Show debugging info
-                            with st.expander("🔍 Debug: Column Data Types"):
-                                debug_info = []
-                                for col in RF_REQUIRED_FEATURES:
-                                    if col in df.columns:
-                                        dtype = df[col].dtype
-                                        sample = df[col].iloc[0] if len(df) > 0 else 'N/A'
-                                        debug_info.append(f"{col}: {dtype} (sample: {sample})")
-                                st.code('\n'.join(debug_info))
-                            
                             progress_bar.empty()
                             status_text.empty()
                         else:
@@ -338,7 +333,7 @@ def show():
                                 raise FileNotFoundError(f"R script missing: {r_script_path}")
                             
                             predictions = run_rf_prediction(
-                                df, 
+                                df_prepared,  # Use prepared data, not original df
                                 model_path=model_path,
                                 r_script_path=r_script_path,
                                 verbose=True
