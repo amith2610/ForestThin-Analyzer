@@ -33,6 +33,7 @@ RF_REQUIRED_FEATURES = [
     'SILVA1', 'SILVA2'
 ]
 
+
 def validate_rf_dataset(df):
     """
     Validate that dataset has all required features for RF model
@@ -111,9 +112,6 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
     df_copy['study'] = 'DEFAULT'
     
     try:
-        # Activate pandas conversion
-        pandas2ri.activate()
-        
         # Load R script
         if verbose:
             print(f"\nLoading R script: {os.path.basename(r_script_path)}")
@@ -124,22 +122,19 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
             print(f"Loading RF model: {os.path.basename(model_path)}")
         ro.r(f'rf_model <- readRDS("{model_path}")')
         
-        # Convert pandas DataFrame to R DataFrame
-        with localconverter(ro.default_converter + pandas2ri.converter):
-            r_df = ro.conversion.py2rpy(df_copy)
-        
+        # Convert pandas DataFrame to R DataFrame using context manager
         if verbose:
             print("\nRunning predictions...")
         
-        # Run prediction function
-        # Assumes R script has a function called 'apply_rf_model'
-        result = ro.r['apply_rf_model'](r_df, ro.r['rf_model'])
-        
-        # Convert back to pandas
         with localconverter(ro.default_converter + pandas2ri.converter):
+            r_df = ro.conversion.py2rpy(df_copy)
+            
+            # Run prediction function
+            # Assumes R script has a function called 'apply_rf_model'
+            result = ro.r['apply_rf_model'](r_df, ro.r['rf_model'])
+            
+            # Convert back to pandas
             predictions_df = ro.conversion.rpy2py(result)
-        
-        pandas2ri.deactivate()
         
         if verbose:
             print(f"\n✅ Predictions complete")
@@ -152,7 +147,6 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
         return predictions_df
         
     except Exception as e:
-        pandas2ri.deactivate()
         raise RuntimeError(f"RF prediction failed: {str(e)}")
 
 
