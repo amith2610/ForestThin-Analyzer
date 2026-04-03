@@ -17,6 +17,12 @@ from utils.pipeline_runner import run_pipeline
 from utils.db_manager import save_run_to_db
 from utils.visualizer import display_results
 
+# Import RF predictor components (only used when RF model selected)
+try:
+    from rf_predictor import RF_REQUIRED_FEATURES
+except ImportError:
+    RF_REQUIRED_FEATURES = []  # Fallback if rf_predictor not available
+
 def validate_csv(df):
     """Validate CSV has required columns"""
     required = ['NL', 'X1', 'Y1', 'pDBH_RF', 'Z', 'treeID']
@@ -288,6 +294,17 @@ def show():
                         if not is_valid:
                             st.error(f"❌ Dataset validation failed: {msg}")
                             st.info("💡 RF model requires LiDAR-processed CSV with ITC metrics and competition indices")
+                            
+                            # Show debugging info
+                            with st.expander("🔍 Debug: Column Data Types"):
+                                debug_info = []
+                                for col in RF_REQUIRED_FEATURES:
+                                    if col in df.columns:
+                                        dtype = df[col].dtype
+                                        sample = df[col].iloc[0] if len(df) > 0 else 'N/A'
+                                        debug_info.append(f"{col}: {dtype} (sample: {sample})")
+                                st.code('\n'.join(debug_info))
+                            
                             progress_bar.empty()
                             status_text.empty()
                         else:

@@ -33,8 +33,6 @@ RF_REQUIRED_FEATURES = [
     'SILVA1', 'SILVA2'
 ]
 
-
-
 def validate_rf_dataset(df):
     """
     Validate that dataset has all required features for RF model
@@ -50,10 +48,22 @@ def validate_rf_dataset(df):
     if missing_features:
         return False, f"Missing {len(missing_features)} required features: {', '.join(missing_features[:5])}..."
     
-    # Check for numeric values
+    # Try to convert columns to numeric and check for issues
+    non_numeric_cols = []
     for col in RF_REQUIRED_FEATURES:
-        if not pd.api.types.is_numeric_dtype(df[col]):
-            return False, f"Column '{col}' must be numeric"
+        # Try converting to numeric
+        try:
+            # Convert column to numeric, coercing errors to NaN
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            # Check if conversion resulted in all NaN (completely non-numeric)
+            if df[col].isna().all():
+                non_numeric_cols.append(col)
+        except Exception as e:
+            non_numeric_cols.append(f"{col} (error: {str(e)})")
+    
+    if non_numeric_cols:
+        return False, f"These columns could not be converted to numeric: {', '.join(non_numeric_cols[:3])}..."
     
     # Check for valid data
     valid_rows = df[RF_REQUIRED_FEATURES].notna().all(axis=1).sum()
