@@ -127,7 +127,7 @@ def show():
             st.subheader("Thinning Mode")
             
             # No-thin checkbox
-            no_thinning = st.checkbox("☑ Skip Thinning (No-Thin Mode)", key="no_thin_check",
+            no_thinning = st.checkbox("Skip Thinning (No-Thin Mode)", key="no_thin_check",
                                       help="Growth projection without any thinning operations")
             
             if not no_thinning:
