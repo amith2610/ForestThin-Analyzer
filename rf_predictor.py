@@ -26,7 +26,8 @@ except ImportError:
     print("Warning: rpy2 not available. RF model will not work.")
 
 
-# Required features for RF model
+# Required features for RF model - R MODEL NAMING (with dots and underscores as R expects)
+# These are the names AFTER prepare_rf_data() mapping
 RF_REQUIRED_FEATURES = [
     # Basic metrics
     'Z', 'HTLC.x', 'Carea', 'CArea_1', 'mCDst', 'CLAI', 'UndTF', 'UndPrp',
@@ -42,6 +43,52 @@ RF_REQUIRED_FEATURES = [
     # SILVA indices
     'SILVA1', 'SILVA2'
 ]
+
+
+# Optional features that may or may not be in the dataset
+OPTIONAL_FEATURES = ['CArea_1', 'CLAI', 'UndTF', 'UndPrp', 'CI_CArea_1', 'CI_LAI', 'CI_under', 'CI_under2']
+
+
+def prepare_rf_data(df):
+    """
+    Prepare data for RF model by:
+    1. Renaming columns to match R model expectations
+    2. Adding missing optional features with default values
+    
+    Args:
+        df: Input DataFrame
+        
+    Returns:
+        DataFrame with proper column names for R model
+    """
+    df_prepared = df.copy()
+    
+    # Column name mapping (CSV → R model)
+    column_mapping = {
+        'HTLC_x': 'HTLC.x',  # R uses dot, CSV uses underscore
+    }
+    
+    # Rename columns
+    df_prepared = df_prepared.rename(columns=column_mapping)
+    
+    # Add optional features with default values if missing
+    # These are used by some RF models but may not be in all datasets
+    optional_defaults = {
+        'CArea_1': 0.0,
+        'CLAI': 0.0,
+        'UndTF': 0.0,
+        'UndPrp': 0.0,
+        'CI_CArea_1': 0.0,
+        'CI_LAI': 0.0,
+        'CI_under': 0.0,
+        'CI_under2': 0.0
+    }
+    
+    for col, default_val in optional_defaults.items():
+        if col not in df_prepared.columns:
+            df_prepared[col] = default_val
+    
+    return df_prepared
 
 
 def validate_rf_dataset(df):
@@ -115,8 +162,11 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
     if not RPY2_AVAILABLE:
         raise RuntimeError("rpy2 is not installed. Install with: pip install rpy2")
     
+    # Prepare data: rename columns and add missing features
+    df_prepared = prepare_rf_data(df)
+    
     # Validate input and get cleaned DataFrame
-    is_valid, msg, df_clean = validate_rf_dataset(df)
+    is_valid, msg, df_clean = validate_rf_dataset(df_prepared)
     if not is_valid:
         raise ValueError(f"Invalid dataset for RF model: {msg}")
     
