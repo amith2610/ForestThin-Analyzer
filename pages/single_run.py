@@ -290,7 +290,7 @@ def show():
                         status_text.info("🔍 Validating dataset for RF model...")
                         progress_bar.progress(20)
                         
-                        is_valid, msg = validate_rf_dataset(df)
+                        is_valid, msg, df_cleaned = validate_rf_dataset(df)
                         if not is_valid:
                             st.error(f"❌ Dataset validation failed: {msg}")
                             st.info("💡 RF model requires LiDAR-processed CSV with ITC metrics and competition indices")

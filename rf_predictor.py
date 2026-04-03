@@ -19,19 +19,20 @@ except ImportError:
 
 # Required features for RF model
 RF_REQUIRED_FEATURES = [
-    # Basic metrics (reduced from 8 to 4)
-    'Z', 'HTLC_x', 'Carea', 'mCDst',  # Changed HTLC.x → HTLC_x
-    # Volumetric features (all 5 present)
+    # Basic metrics
+    'Z', 'HTLC_x', 'Carea', 'mCDst',  # Note: HTLC_x not HTLC.x
+    # Volumetric features
     'vol1', 'vol2', 'vol3', 'vol4', 'vol5',
-    # Surface area features (all 5 present)
+    # Surface area features
     'sfa1', 'sfa2', 'sfa3', 'sfa4', 'sfa5',
-    # Competition indices (reduced from 20 to 14)
+    # Competition indices
     'CI_Carea', 'CI_Z', 'CI_mCDst', 'CI_HTLC',
     'CI_vol1', 'CI_vol2', 'CI_vol3', 'CI_vol4', 'CI_vol5',
     'CI_sfa1', 'CI_sfa2', 'CI_sfa3', 'CI_sfa4', 'CI_sfa5',
-    # SILVA indices (both present)
+    # SILVA indices
     'SILVA1', 'SILVA2'
 ]
+
 
 def validate_rf_dataset(df):
     """
@@ -41,41 +42,43 @@ def validate_rf_dataset(df):
         df: Input DataFrame
         
     Returns:
-        tuple: (is_valid, message)
+        tuple: (is_valid, message, cleaned_df)
     """
     missing_features = [f for f in RF_REQUIRED_FEATURES if f not in df.columns]
     
     if missing_features:
-        return False, f"Missing {len(missing_features)} required features: {', '.join(missing_features[:5])}..."
+        return False, f"Missing {len(missing_features)} required features: {', '.join(missing_features[:5])}...", None
     
-    # Try to convert columns to numeric and check for issues
+    # Create a copy for cleaning
+    df_clean = df.copy()
+    
+    # Convert all required features to numeric
     non_numeric_cols = []
     for col in RF_REQUIRED_FEATURES:
-        # Try converting to numeric
         try:
-            # Convert column to numeric, coercing errors to NaN
-            df[col] = pd.to_numeric(df[col], errors='coerce')
+            # Convert to numeric, coercing errors to NaN
+            df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
             
-            # Check if conversion resulted in all NaN (completely non-numeric)
-            if df[col].isna().all():
+            # Check if conversion resulted in all NaN
+            if df_clean[col].isna().all():
                 non_numeric_cols.append(col)
         except Exception as e:
             non_numeric_cols.append(f"{col} (error: {str(e)})")
     
     if non_numeric_cols:
-        return False, f"These columns could not be converted to numeric: {', '.join(non_numeric_cols[:3])}..."
+        return False, f"These columns could not be converted to numeric: {', '.join(non_numeric_cols[:3])}...", None
     
     # Check for valid data
-    valid_rows = df[RF_REQUIRED_FEATURES].notna().all(axis=1).sum()
-    total_rows = len(df)
+    valid_rows = df_clean[RF_REQUIRED_FEATURES].notna().all(axis=1).sum()
+    total_rows = len(df_clean)
     
     if valid_rows == 0:
-        return False, "No valid rows found (all features must be non-null)"
+        return False, "No valid rows found (all features must be non-null)", None
     
     if valid_rows < total_rows:
-        return True, f"✅ Valid dataset ({valid_rows}/{total_rows} trees have complete data)"
+        return True, f"✅ Valid dataset ({valid_rows}/{total_rows} trees have complete data)", df_clean
     
-    return True, f"✅ Valid dataset ({valid_rows} trees)"
+    return True, f"✅ Valid dataset ({valid_rows} trees)", df_clean
 
 
 def run_rf_prediction(df, model_path, r_script_path, verbose=True):
@@ -94,8 +97,8 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
     if not RPY2_AVAILABLE:
         raise RuntimeError("rpy2 is not installed. Install with: pip install rpy2")
     
-    # Validate input
-    is_valid, msg = validate_rf_dataset(df)
+    # Validate input and get cleaned DataFrame
+    is_valid, msg, df_clean = validate_rf_dataset(df)
     if not is_valid:
         raise ValueError(f"Invalid dataset for RF model: {msg}")
     
@@ -103,8 +106,9 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
         print("\n" + "="*80)
         print("RANDOM FOREST VOLUME PREDICTION")
         print("="*80)
-        print(f"\nInput: {len(df)} trees")
+        print(f"\nInput: {len(df_clean)} trees (after cleaning)")
         print(f"Model: {os.path.basename(model_path)}")
+        print(msg)
     
     # Validate file paths exist
     if not os.path.exists(model_path):
@@ -118,13 +122,13 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
     r_script_path_abs = os.path.abspath(r_script_path).replace(os.sep, "/")
     
     # Add required 'study' column (metadata, hardcoded)
-    df_copy = df.copy()
+    df_copy = df_clean.copy()
     df_copy['study'] = 'DEFAULT'
     
-    # Convert all numeric columns to float to avoid numpy dtype issues
-    for col in df_copy.columns:
-        if df_copy[col].dtype != 'object':
-            df_copy[col] = df_copy[col].astype(float)
+    # Ensure all numeric columns are float type (avoid numpy int64 issues)
+    for col in RF_REQUIRED_FEATURES:
+        if col in df_copy.columns:
+            df_copy[col] = df_copy[col].astype('float64')
     
     try:
         # Activate necessary converters
