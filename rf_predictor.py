@@ -131,9 +131,8 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
             df_copy[col] = df_copy[col].astype('float64')
     
     try:
-        # Activate necessary converters
-        from rpy2.robjects import numpy2ri
-        numpy2ri.activate()
+        # Modern rpy2 API: Use context manager only, no activate/deactivate
+        from rpy2.robjects.conversion import localconverter
         
         # Load R script
         if verbose:
@@ -145,13 +144,12 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
             print(f"Loading RF model: {model_path_abs}")
         ro.r(f'rf_model <- readRDS("{model_path_abs}")')
         
-        # Convert pandas DataFrame to R DataFrame
+        # Convert pandas DataFrame to R DataFrame using context manager
         if verbose:
             print("\nConverting data to R format...")
         
-        # Use simpler conversion approach
         with localconverter(ro.default_converter + pandas2ri.converter):
-            r_df = pandas2ri.py2rpy(df_copy)
+            r_df = ro.conversion.py2rpy(df_copy)
         
         if verbose:
             print("Running predictions...")
@@ -159,12 +157,9 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
         # Run prediction function
         result = ro.r['apply_rf_model'](r_df, ro.r['rf_model'])
         
-        # Convert back to pandas
+        # Convert back to pandas using context manager
         with localconverter(ro.default_converter + pandas2ri.converter):
-            predictions_df = pandas2ri.rpy2py(result)
-        
-        # Deactivate converters
-        numpy2ri.deactivate()
+            predictions_df = ro.conversion.rpy2py(result)
         
         if verbose:
             print(f"\n✅ Predictions complete")
@@ -177,12 +172,10 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
         return predictions_df
         
     except Exception as e:
-        # Deactivate converters on error
-        try:
-            numpy2ri.deactivate()
-        except:
-            pass
-        raise RuntimeError(f"RF prediction failed: {str(e)}")
+        # Proper error message with full exception details
+        import traceback
+        error_details = traceback.format_exc()
+        raise RuntimeError(f"RF prediction failed: {str(e)}\n\nFull traceback:\n{error_details}")
 
 
 def get_rf_summary_stats(predictions_df):
