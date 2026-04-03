@@ -19,20 +19,20 @@ except ImportError:
 
 # Required features for RF model
 RF_REQUIRED_FEATURES = [
-    # Basic metrics
-    'Z', 'HTLC.x', 'Carea', 'CArea_1', 'mCDst', 'CLAI', 'UndTF', 'UndPrp',
-    # Volumetric features
+    # Basic metrics (reduced from 8 to 4)
+    'Z', 'HTLC_x', 'Carea', 'mCDst',  # Changed HTLC.x → HTLC_x
+    # Volumetric features (all 5 present)
     'vol1', 'vol2', 'vol3', 'vol4', 'vol5',
-    # Surface area features
+    # Surface area features (all 5 present)
     'sfa1', 'sfa2', 'sfa3', 'sfa4', 'sfa5',
-    # Competition indices
-    'CI_Carea', 'CI_CArea_1', 'CI_Z', 'CI_mCDst', 'CI_LAI', 'CI_HTLC',
-    'CI_under', 'CI_under2',
+    # Competition indices (reduced from 20 to 14)
+    'CI_Carea', 'CI_Z', 'CI_mCDst', 'CI_HTLC',
     'CI_vol1', 'CI_vol2', 'CI_vol3', 'CI_vol4', 'CI_vol5',
     'CI_sfa1', 'CI_sfa2', 'CI_sfa3', 'CI_sfa4', 'CI_sfa5',
-    # SILVA indices
+    # SILVA indices (both present)
     'SILVA1', 'SILVA2'
 ]
+
 
 
 def validate_rf_dataset(df):
