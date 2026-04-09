@@ -99,39 +99,40 @@ def show():
         if 'uploaded_file' not in st.session_state:
             st.warning("⚠️ Upload a file first")
         else:
-            st.subheader("Primary Thinning")
+            st.subheader("Analysis Mode")
             
-            # Strategy mapping: display name -> pipeline key
-            primary_map = {
-                "3-row thinning (remove every 3rd row)": "3-row",
-                "4-row thinning (remove every 4th row)": "4-row",
-                "5-row thinning (remove every 5th row)": "5-row",
-                "variable-3_row_eqv": "variable-3_row_eqv",
-                "variable-4_row_eqv": "variable-4_row_eqv",
-                "variable-5_row_eqv": "variable-5_row_eqv"
-            }
-            
-            primary_display = st.selectbox(
-                "Strategy", 
-                list(primary_map.keys()),
-                key="primary_strategy_select"
-            )
-            primary_strategy = primary_map[primary_display]
-            
-            if primary_strategy in ["3-row", "4-row", "5-row"]:
-                start_row = st.number_input("Start Row", 1, 5, 1, key="start_row_input")
-            else:
-                start_row = 1
-            
-            st.markdown("---")
-            st.subheader("Thinning Mode")
-            
-            # No-thin checkbox
+            # No-thin checkbox moved to the very top
             no_thinning = st.checkbox("☑ Skip Thinning (No-Thin Mode)", key="no_thin_check",
                                       help="Growth projection without any thinning operations")
             
+            st.markdown("---")
+            
+            # Hide all thinning options if No-Thin is checked
             if not no_thinning:
-                # Regular thinning workflow
+                st.subheader("Primary Thinning")
+                
+                # Strategy mapping: display name -> pipeline key
+                primary_map = {
+                    "3-row thinning (remove every 3rd row)": "3-row",
+                    "4-row thinning (remove every 4th row)": "4-row",
+                    "5-row thinning (remove every 5th row)": "5-row",
+                    "variable-3_row_eqv": "variable-3_row_eqv",
+                    "variable-4_row_eqv": "variable-4_row_eqv",
+                    "variable-5_row_eqv": "variable-5_row_eqv"
+                }
+                
+                primary_display = st.selectbox(
+                    "Strategy", 
+                    list(primary_map.keys()),
+                    key="primary_strategy_select"
+                )
+                primary_strategy = primary_map[primary_display]
+                
+                if primary_strategy in ["3-row", "4-row", "5-row"]:
+                    start_row = st.number_input("Start Row", 1, 5, 1, key="start_row_input")
+                else:
+                    start_row = 1
+                
                 st.markdown("---")
                 st.subheader("Secondary Thinning")
                 
@@ -161,13 +162,14 @@ def show():
                     removal_pct = 0
                     anchor_pct = 10
             else:
-                # No-thin mode: disable secondary thinning
+                # No-thin mode: disable all thinning parameters cleanly
+                primary_strategy = "None"
+                start_row = 1
                 enable_secondary = False
                 secondary_strategy = None
                 removal_pct = 0
                 anchor_pct = 10
             
-            st.markdown("---")
             st.subheader("Growth Model")
             
             # Growth model selection
@@ -360,9 +362,10 @@ def show():
                         status_text.empty()
                 
                 else:
-                    # PTAEDA4 PATHWAY (existing code)
+                    # PTAEDA4 PATHWAY
                     # Build pipeline config
                     pipeline_config = {
+                        'no_thinning': config['no_thinning'],  # <--- THE FIX: Inject the mode to the backend
                         'input': {
                             'stand_file': st.session_state['uploaded_file'],
                             'columns': {
