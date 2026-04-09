@@ -217,26 +217,28 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
         # numpy2ri.converter: handles numpy arrays ↔ R vectors
         converter = ro.default_converter + pandas2ri.converter + numpy2ri.converter
         
+
         # STEP 3: Single atomic operation within one context
-        # This is the ONLY place where Python↔R conversion happens
         with converter.context():
-            # Convert Python DataFrame to R (happens in context)
+            # Convert Python DataFrame to R
             ro.globalenv['input_data'] = df_copy
             
-            # Execute prediction entirely in R (no conversion needed)
-            # This R code runs: apply_rf_model(input_data, rf_model)
-            # Everything stays in R - no bouncing back to Python
-            ro.r('predictions <- apply_rf_model(input_data, rf_model)')
+            # Execute prediction entirely in R
+            ro.r('result_df <- apply_rf_model(input_data, rf_model)')
             
-            # Get result from R environment (conversion happens in context)
-            predictions_df = ro.r['predictions']
-        
+            # THE FIX: Surgical Extraction
+            # Instead of dragging the whole complex DataFrame back across the bridge,
+            # we just extract the single column of numeric predictions.
+            ro.r('predicted_vols <- result_df$Predicted_volume_m')
+            
+            # Convert the simple numeric vector back to a Python numpy array
+            vols_array = np.array(ro.r['predicted_vols'])
+            
         # Context exits - automatic cleanup, thread-local state cleared
         
-        # Convert to pandas if needed (predictions_df might already be pandas)
-        if not isinstance(predictions_df, pd.DataFrame):
-            with converter.context():
-                predictions_df = pandas2ri.rpy2py(predictions_df)
+        # Attach the predictions safely to our pristine Python dataframe
+        predictions_df = df_copy.copy()
+        predictions_df['Predicted_volume_m'] = vols_array
         
         if verbose:
             print(f"\n✅ Predictions complete")
