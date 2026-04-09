@@ -218,30 +218,63 @@ def load_stand_data(filepath, columns):
     return df
 
 
+# def order_within_rows(df, columns):
+#     """Order trees within each row - PRESERVED EXACTLY"""
+#     d = df.copy()
+#     row_col = columns['row']
+#     xcol = columns['x_coord']
+#     ycol = columns['y_coord']
+    
+#     axis_choice = {}
+    
+#     for r, g in d.groupby(row_col, sort=False):
+#         vx = float(g[xcol].var()) if len(g) > 1 else 0.0
+#         vy = float(g[ycol].var()) if len(g) > 1 else 0.0
+#         axis_choice[r] = xcol if vx >= vy else ycol
+
+#     def _sort_group(g):
+#         r = g.name
+#         axis = axis_choice.get(r, xcol)
+#         other = ycol if axis == xcol else xcol
+#         return g.sort_values([axis, other], kind="mergesort")
+
+#     d = d.groupby(row_col, group_keys=False, sort=False).apply(_sort_group)
+#     d["tree_idx_in_row"] = d.groupby(row_col).cumcount() + 1
+#     return d
+
 def order_within_rows(df, columns):
-    """Order trees within each row - PRESERVED EXACTLY"""
+    """Order trees within each row - SAFE VECTORIZED VERSION"""
     d = df.copy()
     row_col = columns['row']
     xcol = columns['x_coord']
     ycol = columns['y_coord']
     
+    # 1. Catch the NaN trap early (if the CSV has bad/empty row data)
+    if d[row_col].isna().all():
+        raise ValueError(f"CRITICAL: The entire '{row_col}' column is NaN. Check your CSV.")
+
+    # 2. Determine the primary sorting axis for each row
     axis_choice = {}
-    
-    for r, g in d.groupby(row_col, sort=False):
+    for r, g in d.dropna(subset=[row_col]).groupby(row_col, sort=False):
         vx = float(g[xcol].var()) if len(g) > 1 else 0.0
         vy = float(g[ycol].var()) if len(g) > 1 else 0.0
         axis_choice[r] = xcol if vx >= vy else ycol
 
-    def _sort_group(g):
-        r = g.name
-        axis = axis_choice.get(r, xcol)
-        other = ycol if axis == xcol else xcol
-        return g.sort_values([axis, other], kind="mergesort")
+    # 3. Create temporary sorting columns dynamically mapped to each row's preferred axis
+    d['sort_axis_1'] = d[row_col].map(axis_choice).fillna(xcol)
+    d['sort_val_1'] = np.where(d['sort_axis_1'] == xcol, d[xcol], d[ycol])
+    d['sort_val_2'] = np.where(d['sort_axis_1'] == xcol, d[ycol], d[xcol])
 
-    d = d.groupby(row_col, group_keys=False, sort=False).apply(_sort_group)
+    # 4. Sort the entire dataframe safely in one vectorized pass
+    d = d.sort_values([row_col, 'sort_val_1', 'sort_val_2'], kind="mergesort")
+    
+    # 5. Safely calculate the index (the 'NL' column is guaranteed to still exist here)
     d["tree_idx_in_row"] = d.groupby(row_col).cumcount() + 1
+    
+    # 6. Cleanup temporary columns
+    d = d.drop(columns=['sort_axis_1', 'sort_val_1', 'sort_val_2'])
+    
     return d
-
 
 def ordered_rows(df, row_col):
     """Get sorted list of unique row numbers - PRESERVED EXACTLY"""
