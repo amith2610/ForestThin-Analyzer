@@ -325,13 +325,6 @@ def show():
                                 status_text.empty()
                                 raise FileNotFoundError(f"Model file missing: {model_path}")
                             
-                            if not os.path.exists(r_script_path):
-                                st.error(f"❌ R script not found at: {r_script_path}")
-                                st.info("💡 Please ensure gny_model_application.R is in the models/ directory")
-                                progress_bar.empty()
-                                status_text.empty()
-                                raise FileNotFoundError(f"R script missing: {r_script_path}")
-                            
                             predictions = run_rf_prediction(
                                 df_prepared,  # Use prepared data, not original df
                                 model_path=model_path,
@@ -442,7 +435,7 @@ def show():
         st.header("📊 PTAEDA4 Results")
         display_results(st.session_state['current_results'])
     
-# Display RF results
+    # Display RF results
     if 'rf_results' in st.session_state:
         st.markdown("---")
         st.header("📊 Random Forest Prediction Results")
@@ -508,6 +501,5 @@ def show():
             mime="text/csv"
         )
 
-        
 if __name__ == "__main__":
     show()

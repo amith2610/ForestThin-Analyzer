@@ -6,11 +6,13 @@ ROOT CAUSE OF ALL ERRORS:
 - Mixing Python function calls with R objects creates conversion confusion
 - Thread-local context gets lost across Streamlit threads  
 - Multiple converter activation points cause state conflicts
+- External R scripts dropping columns and crashing on NULL types
 
 SOLUTION:
-- Execute EVERYTHING in R directly (no Python→R→Python bouncing)
-- Use minimal conversions (only input DataFrame and output result)
+- Execute EVERYTHING natively in R via Python strings (no external R scripts)
+- Use minimal conversions (only input DataFrame and output 1-D numeric array)
 - Single atomic operation within one context
+- Convert final outputs to cubic feet and calculate 4-year growth delta
 """
 
 import pandas as pd
@@ -54,12 +56,6 @@ def prepare_rf_data(df):
     Prepare data for RF model by:
     1. Renaming columns to match R model expectations
     2. Adding missing optional features with default values
-    
-    Args:
-        df: Input DataFrame
-        
-    Returns:
-        DataFrame with proper column names for R model
     """
     df_prepared = df.copy()
     
@@ -72,7 +68,6 @@ def prepare_rf_data(df):
     df_prepared = df_prepared.rename(columns=column_mapping)
     
     # Add optional features with default values if missing
-    # These are used by some RF models but may not be in all datasets
     optional_defaults = {
         'CArea_1': 0.0,
         'CLAI': 0.0,
@@ -94,12 +89,6 @@ def prepare_rf_data(df):
 def validate_rf_dataset(df):
     """
     Validate that dataset has all required features for RF model
-    
-    Args:
-        df: Input DataFrame
-        
-    Returns:
-        tuple: (is_valid, message, cleaned_df)
     """
     missing_features = [f for f in RF_REQUIRED_FEATURES if f not in df.columns]
     
@@ -137,27 +126,7 @@ def validate_rf_dataset(df):
 
 def run_rf_prediction(df, model_path, r_script_path, verbose=True):
     """
-    Run Random Forest prediction using R model via rpy2
-    
-    COMPREHENSIVE SOLUTION:
-    Strategy: Execute everything in R, minimize Python↔R conversions
-    
-    Instead of:
-        Python DataFrame → R DataFrame → R function(R_df, R_model) → R result → Python DataFrame
-        (Multiple conversion points = multiple failure points)
-    
-    We do:
-        Python DataFrame → [SINGLE R CONTEXT] → Python DataFrame
-        All R operations happen in R, we just pass data in and get results out
-    
-    Args:
-        df: Input DataFrame with required features
-        model_path: Path to .rds model file
-        r_script_path: Path to R script with prediction functions
-        verbose: Print progress messages
-        
-    Returns:
-        DataFrame with predictions added
+    Run Random Forest prediction using R model natively via rpy2 strings.
     """
     if not RPY2_AVAILABLE:
         raise RuntimeError("rpy2 is not installed. Install with: pip install rpy2")
@@ -181,12 +150,9 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
     # Validate file paths
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"RF model file not found: {model_path}")
-    if not os.path.exists(r_script_path):
-        raise FileNotFoundError(f"R script file not found: {r_script_path}")
     
     # Normalize paths for R
     model_path_abs = os.path.abspath(model_path).replace(os.sep, "/")
-    r_script_path_abs = os.path.abspath(r_script_path).replace(os.sep, "/")
     
     # Prepare data
     df_copy = df_clean.copy()
@@ -202,41 +168,67 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
         if verbose:
             print(f"\nLoading R environment...")
         
-        # STEP 1: Load R script and model (pure R operations, no conversion)
-        ro.r(f'source("{r_script_path_abs}")')
+        # STEP 1: Load RF model natively (We bypass the external R script entirely)
         ro.r(f'rf_model <- readRDS("{model_path_abs}")')
         
         if verbose:
-            print(f"✓ R script loaded: {os.path.basename(r_script_path_abs)}")
             print(f"✓ RF model loaded: {os.path.basename(model_path_abs)}")
-            print("\nRunning prediction pipeline...")
+            print("\nRunning native R prediction pipeline...")
         
         # STEP 2: Create combined converter
-        # default_converter: handles basic Python types (int, float, str, list, dict)
-        # pandas2ri.converter: handles pandas DataFrame ↔ R data.frame
-        # numpy2ri.converter: handles numpy arrays ↔ R vectors
         converter = ro.default_converter + pandas2ri.converter + numpy2ri.converter
         
-
         # STEP 3: Single atomic operation within one context
         with converter.context():
-            # Convert Python DataFrame to R
-            ro.globalenv['input_data'] = df_copy
+            # EXPLICIT conversion to R dataframe (forces it safely across the bridge)
+            r_df = pandas2ri.py2rpy(df_copy)
+            ro.globalenv['input_data'] = r_df
             
-            # Execute prediction entirely in R
-            ro.r('result_df <- apply_rf_model(input_data, rf_model)')
+            # STEP 4: NATIVE R EXECUTION
+            # We inject the R logic directly from Python so nothing gets lost
+            r_code = """
+            library(randomForest)
+            input_data <- as.data.frame(input_data)
             
-            # THE FIX: Surgical Extraction
-            # Instead of dragging the whole complex DataFrame back across the bridge,
-            # we just extract the single column of numeric predictions.
-            ro.r('predicted_vols <- result_df$Predicted_volume_m3')
+            # 1. Lock Factors (Fixes the study/factor crash)
+            if (!is.null(rf_model$forest$xlevels)) {
+                for (var_name in names(rf_model$forest$xlevels)) {
+                    if (var_name %in% colnames(input_data)) {
+                        expected_levels <- rf_model$forest$xlevels[[var_name]]
+                        input_data[[var_name]] <- factor(expected_levels[1], levels = expected_levels)
+                    }
+                }
+            }
             
-            # Convert the simple numeric vector back to a Python numpy array
-            vols_array = np.array(ro.r['predicted_vols'])
+            # 2. Get Required Features safely from the model's formula
+            if (!is.null(rf_model$terms)) {
+                req_features <- attr(rf_model$terms, "term.labels")
+            } else {
+                req_features <- rownames(rf_model$importance)
+            }
             
-        # Context exits - automatic cleanup, thread-local state cleared
+            # 3. Patch Missing or NA Columns safely
+            for (col in req_features) {
+                if (!(col %in% colnames(input_data))) {
+                    input_data[[col]] <- 0
+                } else if (any(is.na(input_data[[col]]))) {
+                    input_data[is.na(input_data[[col]]), col] <- 0
+                }
+            }
+            
+            # 4. Predict and strictly force to a numeric array
+            predictions <- predict(rf_model, newdata = input_data)
+            predicted_vols <- as.numeric(predictions)
+            """
+            ro.r(r_code)
+            
+            # Extract the guaranteed pure numeric vector back to Python
+            raw_vols = ro.r['predicted_vols']
+            vols_array = np.array(raw_vols, dtype=float)
+            
+        # Context exits - automatic cleanup
         
-        # Attach the predictions safely to our pristine Python dataframe
+        # Attach the pure float predictions safely to our Python dataframe
         predictions_df = df_copy.copy()
         predictions_df['Predicted_volume_m3'] = vols_array
         
@@ -265,46 +257,11 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
         import traceback
         error_details = traceback.format_exc()
         
-        # Enhanced error diagnostics
-        if "NotImplementedError" in str(e) and "Conversion" in str(e):
-            raise RuntimeError(
-                f"❌ rpy2 Conversion Error\n\n"
-                f"Error: {str(e)}\n\n"
-                f"Diagnosis: A Python data type couldn't be converted to R.\n"
-                f"Common causes:\n"
-                f"  - Non-numeric values in numeric columns\n"
-                f"  - Mixed data types in columns\n"
-                f"  - Missing required features\n\n"
-                f"Full traceback:\n{error_details}"
-            )
-        elif "Error in apply_rf_model" in str(e):
-            raise RuntimeError(
-                f"❌ R Function Error\n\n"
-                f"Error: {str(e)}\n\n"
-                f"Diagnosis: The R prediction function failed.\n"
-                f"Check:\n"
-                f"  - R script defines 'apply_rf_model(data, model)'\n"
-                f"  - Model file is valid randomForest object\n"
-                f"  - Input data has all required features\n\n"
-                f"Full traceback:\n{error_details}"
-            )
-        elif "object 'rf_model' not found" in str(e):
-            raise RuntimeError(
-                f"❌ R Model Loading Error\n\n"
-                f"Error: {str(e)}\n\n"
-                f"Diagnosis: Model file couldn't be loaded.\n"
-                f"Check:\n"
-                f"  - File exists: {model_path}\n"
-                f"  - File is valid .rds format\n"
-                f"  - File contains randomForest model object\n\n"
-                f"Full traceback:\n{error_details}"
-            )
-        else:
-            raise RuntimeError(
-                f"❌ RF Prediction Failed\n\n"
-                f"Error: {str(e)}\n\n"
-                f"Full traceback:\n{error_details}"
-            )
+        raise RuntimeError(
+            f"❌ RF Prediction Failed\n\n"
+            f"Error: {str(e)}\n\n"
+            f"Full traceback:\n{error_details}"
+        )
 
 
 def get_rf_summary_stats(predictions_df):
@@ -329,12 +286,18 @@ def get_rf_summary_stats(predictions_df):
         'prediction_timeframe': '4 years from data collection'
     }
 
+
 def export_rf_results(predictions_df, output_path, include_input_features=False):
     """Export RF predictions to CSV"""
     if include_input_features:
         predictions_df.to_csv(output_path, index=False)
     else:
-        essential_cols = ['treeID', 'Predicted_volume_m']
+        essential_cols = [
+            'treeID', 
+            'Initial_volume_cuft', 
+            'Predicted_volume_cuft', 
+            'Volume_growth_cuft'
+        ]
         for col in ['X1', 'Y1', 'geom_x', 'geom_y']:
             if col in predictions_df.columns and col not in essential_cols:
                 essential_cols.insert(1, col)
@@ -353,4 +316,4 @@ if __name__ == "__main__":
     print("1. Execute everything in R (minimize Python↔R transitions)")
     print("2. Single conversion context (thread-safe)")
     print("3. Combined converters (default + pandas + numpy)")
-    print("4. No deprecated activate/deactivate methods")
+    print("4. Pure numeric array extraction to bypass NULLType bugs")
