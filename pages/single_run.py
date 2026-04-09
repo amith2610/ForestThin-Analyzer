@@ -442,7 +442,7 @@ def show():
         st.header("📊 PTAEDA4 Results")
         display_results(st.session_state['current_results'])
     
-    # Display RF results
+# Display RF results
     if 'rf_results' in st.session_state:
         st.markdown("---")
         st.header("📊 Random Forest Prediction Results")
@@ -450,39 +450,43 @@ def show():
         rf_data = st.session_state['rf_results']
         stats = rf_data['stats']
         
-        # Summary metrics
-        col1, col2, col3 = st.columns(3)
+        # Summary metrics (Expanded to 4 columns)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            st.metric("Total Volume", f"{stats['total_volume_m3']:.2f} m³")
+            st.metric("Initial Volume", f"{stats['total_initial_volume_cuft']:,.2f} ft³")
         
         with col2:
-            st.metric("Mean Volume/Tree", f"{stats['mean_volume_m3']:.4f} m³")
+            st.metric("Predicted Volume (4-yr)", f"{stats['total_volume_cuft']:,.2f} ft³")
         
         with col3:
+            # We use Streamlit's native 'delta' parameter to display the growth with a color-coded arrow
+            growth_val = stats['total_volume_growth_cuft']
+            st.metric("Volume Growth", f"{growth_val:,.2f} ft³", delta=f"{growth_val:,.2f} ft³")
+            
+        with col4:
             st.metric("Number of Trees", f"{stats['n_trees']:,}")
         
         # Additional stats
-        st.subheader("Statistical Summary")
+        st.subheader("Statistical Summary (Per Tree)")
         summary_df = pd.DataFrame({
-            'Metric': ['Total Volume', 'Mean Volume', 'Median Volume', 'Std Dev', 'Min Volume', 'Max Volume'],
+            'Metric': ['Mean Predicted Vol', 'Median Predicted Vol', 'Std Dev', 'Min Volume', 'Max Volume'],
             'Value': [
-                f"{stats['total_volume_m3']:.2f} m³",
-                f"{stats['mean_volume_m3']:.4f} m³",
-                f"{stats['median_volume_m3']:.4f} m³",
-                f"{stats['std_volume_m3']:.4f} m³",
-                f"{stats['min_volume_m3']:.4f} m³",
-                f"{stats['max_volume_m3']:.4f} m³"
+                f"{stats['mean_volume_cuft']:,.4f} ft³",
+                f"{stats['median_volume_cuft']:,.4f} ft³",
+                f"{stats['std_volume_cuft']:,.4f} ft³",
+                f"{stats['min_volume_cuft']:,.4f} ft³",
+                f"{stats['max_volume_cuft']:,.4f} ft³"
             ]
         })
         st.table(summary_df)
         
         st.info(f"ℹ️ Prediction timeframe: {stats['prediction_timeframe']}")
         
-        # Optional: Show sample predictions
+        # Show sample predictions
         with st.expander("View Tree-Level Predictions (Sample)"):
             predictions = rf_data['predictions']
-            display_cols = ['treeID', 'Predicted_volume_m']
+            display_cols = ['treeID', 'Initial_volume_cuft', 'Predicted_volume_cuft', 'Volume_growth_cuft']
             
             # Add coords if available
             for coord_col in ['X1', 'Y1', 'geom_x', 'geom_y']:
@@ -493,7 +497,10 @@ def show():
             st.dataframe(predictions[available_cols].head(20), use_container_width=True)
         
         # Download button
-        csv = rf_data['predictions'][['treeID', 'Predicted_volume_m']].to_csv(index=False)
+        csv_cols = ['treeID', 'Initial_volume_cuft', 'Predicted_volume_cuft', 'Volume_growth_cuft']
+        export_cols = [c for c in csv_cols if c in rf_data['predictions'].columns]
+        csv = rf_data['predictions'][export_cols].to_csv(index=False)
+        
         st.download_button(
             label="📥 Download Predictions CSV",
             data=csv,
@@ -501,5 +508,6 @@ def show():
             mime="text/csv"
         )
 
+        
 if __name__ == "__main__":
     show()

@@ -229,7 +229,7 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
             # THE FIX: Surgical Extraction
             # Instead of dragging the whole complex DataFrame back across the bridge,
             # we just extract the single column of numeric predictions.
-            ro.r('predicted_vols <- result_df$Predicted_volume_m')
+            ro.r('predicted_vols <- result_df$Predicted_volume_m3')
             
             # Convert the simple numeric vector back to a Python numpy array
             vols_array = np.array(ro.r['predicted_vols'])
@@ -238,15 +238,26 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
         
         # Attach the predictions safely to our pristine Python dataframe
         predictions_df = df_copy.copy()
-        predictions_df['Predicted_volume_m'] = vols_array
+        predictions_df['Predicted_volume_m3'] = vols_array
+        
+        # 1. Convert to cubic feet (1 m³ = 35.3146667 ft³)
+        predictions_df['Predicted_volume_cuft'] = predictions_df['Predicted_volume_m3'] * 35.3146667
+        
+        # 2. Calculate Initial Volume using Tasissa (DBH in inches, Height in feet)
+        predictions_df['Initial_volume_cuft'] = 0.25663 + 0.00239 * (predictions_df['pDBH_RF'] ** 2) * predictions_df['Z_ft']
+        
+        # 3. Calculate Volume Growth per tree
+        predictions_df['Volume_growth_cuft'] = predictions_df['Predicted_volume_cuft'] - predictions_df['Initial_volume_cuft']
         
         if verbose:
             print(f"\n✅ Predictions complete")
-            if 'Predicted_volume_m' in predictions_df.columns:
-                total_vol = predictions_df['Predicted_volume_m'].sum()
-                mean_vol = predictions_df['Predicted_volume_m'].mean()
-                print(f"   Total Predicted Volume: {total_vol:.2f} m³")
-                print(f"   Mean Volume per Tree: {mean_vol:.4f} m³")
+            total_initial = predictions_df['Initial_volume_cuft'].sum()
+            total_pred = predictions_df['Predicted_volume_cuft'].sum()
+            total_growth = predictions_df['Volume_growth_cuft'].sum()
+            
+            print(f"   Initial Volume: {total_initial:.2f} ft³")
+            print(f"   Predicted Volume: {total_pred:.2f} ft³")
+            print(f"   Volume Growth: {total_growth:.2f} ft³")
         
         return predictions_df
         
@@ -298,22 +309,25 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
 
 def get_rf_summary_stats(predictions_df):
     """Calculate summary statistics from RF predictions"""
-    if 'Predicted_volume_m' not in predictions_df.columns:
-        raise ValueError("predictions_df must have 'Predicted_volume_m' column")
+    if 'Predicted_volume_cuft' not in predictions_df.columns:
+        raise ValueError("predictions_df must have 'Predicted_volume_cuft' column")
     
-    volumes = predictions_df['Predicted_volume_m']
+    pred_volumes = predictions_df['Predicted_volume_cuft']
+    init_volumes = predictions_df['Initial_volume_cuft']
+    growth_volumes = predictions_df['Volume_growth_cuft']
     
     return {
         'n_trees': len(predictions_df),
-        'total_volume_m3': float(volumes.sum()),
-        'mean_volume_m3': float(volumes.mean()),
-        'median_volume_m3': float(volumes.median()),
-        'std_volume_m3': float(volumes.std()),
-        'min_volume_m3': float(volumes.min()),
-        'max_volume_m3': float(volumes.max()),
+        'total_initial_volume_cuft': float(init_volumes.sum()),
+        'total_volume_cuft': float(pred_volumes.sum()),
+        'total_volume_growth_cuft': float(growth_volumes.sum()),
+        'mean_volume_cuft': float(pred_volumes.mean()),
+        'median_volume_cuft': float(pred_volumes.median()),
+        'std_volume_cuft': float(pred_volumes.std()),
+        'min_volume_cuft': float(pred_volumes.min()),
+        'max_volume_cuft': float(pred_volumes.max()),
         'prediction_timeframe': '4 years from data collection'
     }
-
 
 def export_rf_results(predictions_df, output_path, include_input_features=False):
     """Export RF predictions to CSV"""
