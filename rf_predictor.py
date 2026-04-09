@@ -55,24 +55,33 @@ def prepare_rf_data(df):
     """
     Prepare data for RF model by:
     1. Renaming columns to match R model expectations
-    2. Adding missing optional features with default values
+    2. Safely mapping missing features to avoid '0.0' data starvation
     """
     df_prepared = df.copy()
     
-    # Column name mapping (CSV → R model)
+    # Column name mapping
     column_mapping = {
-        'HTLC_x': 'HTLC.x',  # R uses dot, CSV uses underscore
+        'HTLC_x': 'HTLC.x',
     }
-    
-    # Rename columns
     df_prepared = df_prepared.rename(columns=column_mapping)
     
-    # Add optional features with default values if missing
+    # 1. Map missing metrics to highly correlated existing metrics if possible
+    # This prevents the RF model from thinking the tree has no crown
+    if 'CArea_1' not in df_prepared.columns and 'Carea' in df_prepared.columns:
+        df_prepared['CArea_1'] = df_prepared['Carea']
+        
+    if 'CI_CArea_1' not in df_prepared.columns and 'CI_Carea' in df_prepared.columns:
+        df_prepared['CI_CArea_1'] = df_prepared['CI_Carea']
+        
+    if 'CI_LAI' not in df_prepared.columns and 'CI_Z' in df_prepared.columns:
+        df_prepared['CI_LAI'] = df_prepared['CI_Z']  # Use Height competition as proxy
+    
+    # 2. Add remaining optional features with realistic biological defaults (NOT zero)
     optional_defaults = {
-        'CArea_1': 0.0,
-        'CLAI': 0.0,
-        'UndTF': 0.0,
-        'UndPrp': 0.0,
+        'CArea_1': 10.0,   # Minimum realistic crown area
+        'CLAI': 2.5,       # Realistic pine Leaf Area Index
+        'UndTF': 0.5,      # Neutral understory transmittance
+        'UndPrp': 0.5,
         'CI_CArea_1': 0.0,
         'CI_LAI': 0.0,
         'CI_under': 0.0,
@@ -229,17 +238,26 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
         # Context exits - automatic cleanup
         
         # Attach the pure float predictions safely to our Python dataframe
+
         predictions_df = df_copy.copy()
-        predictions_df['Predicted_volume_m3'] = vols_array
         
-        # 1. Convert to cubic feet (1 m³ = 35.3146667 ft³)
-        predictions_df['Predicted_volume_cuft'] = predictions_df['Predicted_volume_m3'] * 35.3146667
+        # 1. THE BREAKTHROUGH: The RF model natively outputs 4-YEAR VOLUME GROWTH in CUBIC METERS
+        predictions_df['Volume_growth_m3'] = vols_array
+        predictions_df['Volume_growth_cuft'] = predictions_df['Volume_growth_m3'] * 35.3146667
         
-        # 2. Calculate Initial Volume using Tasissa (DBH in inches, Height in feet)
-        predictions_df['Initial_volume_cuft'] = 0.25663 + 0.00239 * (predictions_df['pDBH_RF'] ** 2) * predictions_df['Z_ft']
+        # 2. Get Initial Volume 
+        # Safely convert millimeters to inches if needed for the Tasissa fallback formula
+        pDBH_inches = np.where(predictions_df['pDBH_RF'] > 50, predictions_df['pDBH_RF'] / 25.4, predictions_df['pDBH_RF'])
+        tasissa_vol = 0.25663 + 0.00239 * (pDBH_inches ** 2) * predictions_df['Z_ft']
         
-        # 3. Calculate Volume Growth per tree
-        predictions_df['Volume_growth_cuft'] = predictions_df['Predicted_volume_cuft'] - predictions_df['Initial_volume_cuft']
+        # Use the RF's Year 0 volume ('pStV_RF') from the CSV if available so baselines match perfectly
+        if 'pStV_RF' in predictions_df.columns and predictions_df['pStV_RF'].sum() > 0:
+            predictions_df['Initial_volume_cuft'] = predictions_df['pStV_RF']
+        else:
+            predictions_df['Initial_volume_cuft'] = tasissa_vol
+            
+        # 3. Final Predicted Volume = Initial + Growth
+        predictions_df['Predicted_volume_cuft'] = predictions_df['Initial_volume_cuft'] + predictions_df['Volume_growth_cuft']
         
         if verbose:
             print(f"\n✅ Predictions complete")
@@ -248,8 +266,8 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
             total_growth = predictions_df['Volume_growth_cuft'].sum()
             
             print(f"   Initial Volume: {total_initial:.2f} ft³")
-            print(f"   Predicted Volume: {total_pred:.2f} ft³")
             print(f"   Volume Growth: {total_growth:.2f} ft³")
+            print(f"   Final Predicted Volume: {total_pred:.2f} ft³")
         
         return predictions_df
         
@@ -262,7 +280,6 @@ def run_rf_prediction(df, model_path, r_script_path, verbose=True):
             f"Error: {str(e)}\n\n"
             f"Full traceback:\n{error_details}"
         )
-
 
 def get_rf_summary_stats(predictions_df):
     """Calculate summary statistics from RF predictions"""
