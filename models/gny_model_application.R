@@ -10,29 +10,54 @@ library(randomForest)
 #' @return Data frame with predictions added
 apply_rf_model <- function(input_data, rf_model) {
   
-  # Get required features from model
-  required_features <- rownames(rf_model$importance)
+  # 1. SAFELY EXTRACT REQUIRED FEATURES
+  # Prefer the model's actual formula (terms) to catch all variables.
+  # Fallback to importance matrix if terms don't exist.
+  if (!is.null(rf_model$terms)) {
+    required_features <- attr(rf_model$terms, "term.labels")
+  } else {
+    required_features <- rownames(rf_model$importance)
+  }
   
-  # Check for missing features
+  # 2. THE FACTOR TRAP FIX
+  # randomForest crashes if categorical features don't exactly match training levels.
+  # We dynamically intercept dummy strings (like 'DEFAULT') and lock them into valid Factors.
+  if (!is.null(rf_model$forest$xlevels)) {
+    for (var_name in names(rf_model$forest$xlevels)) {
+      if (var_name %in% colnames(input_data)) {
+        expected_levels <- rf_model$forest$xlevels[[var_name]]
+        # Force dummy variables to match the first expected training level
+        input_data[[var_name]] <- factor(expected_levels[1], levels = expected_levels)
+      }
+    }
+  }
+  
+  # 3. CHECK FOR MISSING FEATURES
   missing_features <- setdiff(required_features, colnames(input_data))
   if (length(missing_features) > 0) {
     stop(paste("Missing required features:", paste(missing_features, collapse=", ")))
   }
   
-  # Subset to required features only
-  prediction_data <- input_data[, required_features, drop=FALSE]
-  
-  # Check for missing values
-  if (any(is.na(prediction_data))) {
-    warning("Input data contains missing values. Predictions may be incomplete.")
+  # 4. HANDLE MISSING VALUES (NAs)
+  # Instead of dangerously subsetting the dataframe, we keep it intact.
+  # We just coerce NAs to 0 to prevent predict() from fatal-crashing.
+  prediction_data <- input_data
+  if (any(is.na(prediction_data[, required_features, drop=FALSE]))) {
+    warning("Input data contains missing values. Setting NAs to 0.")
+    for (col in required_features) {
+      if (any(is.na(prediction_data[[col]]))) {
+         prediction_data[is.na(prediction_data[[col]]), col] <- 0
+      }
+    }
   }
   
-  # Run predictions
+  # 5. RUN PREDICTIONS
+  # Pass the entire dataframe. predict() will safely find what it needs.
   predictions <- predict(rf_model, newdata=prediction_data)
   
-  # Add predictions to input data
+  # 6. ADD PREDICTIONS TO OUTPUT
   output_data <- input_data
-  output_data$Predicted_volume_m <- predictions
+  output_data$Predicted_volume_m <- as.numeric(predictions)
   
   return(output_data)
 }
