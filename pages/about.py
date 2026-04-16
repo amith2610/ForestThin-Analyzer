@@ -15,6 +15,36 @@ def show():
     """)
     
     # ========================================================================
+    # DATASET REQUIREMENTS
+    # ========================================================================
+    
+    st.markdown("---")
+    st.markdown("## 📋 Dataset Requirements")
+    
+    st.markdown("""
+    To run analysis on ForestThin Analyzer, your dataset must meet the following requirements:
+    """)
+    
+    with st.expander("**File Format and Required Columns**", expanded=True):
+        st.markdown("""
+        **File Format:** CSV file
+        
+        **Required Columns (specific column names):**
+        - `X1` - X coordinate (UTM meters)
+        - `Y1` - Y coordinate (UTM meters)
+        - `pDBH_RF` - Diameter at breast height (inches)
+        - `Z` - Tree height (feet)
+        - `NL` - Row identifier
+        - `treeID` - Unique tree identifier
+        
+        **Data Requirements:**
+        - One row per tree
+        - All measurements must be numeric
+        - Trees with missing DBH or height values will be excluded
+        - Coordinates should use consistent projection
+        """)
+    
+    # ========================================================================
     # PRIMARY THINNING STRATEGIES
     # ========================================================================
     

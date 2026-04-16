@@ -276,7 +276,6 @@ def order_within_rows(df, columns):
     
     return d
 
-
 def ordered_rows(df, row_col):
     """Get sorted list of unique row numbers - PRESERVED EXACTLY"""
     s = df[row_col].dropna()
